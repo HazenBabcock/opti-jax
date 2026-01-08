@@ -75,7 +75,23 @@ class Optics(object):
     def kvalue_range(self):
         return [self.kmax/self.dk0, self.kmax/self.dk1]
 
-    
+
+    def plot_x(self, x, figsize = (4.75, 8)):
+        """
+        Plot values of x in the complex plane.
+        """
+        fig, axs = plt.subplots(1, 1, figsize = figsize)
+
+        axs.plot(x[0].flatten(), x[1].flatten(), ".", alpha = 0.01)
+        axs.plot([-0.2, 1.2], [0.0, 0.0], ":", color = "gray")
+        axs.plot([0.0, 0.0], [-1.2, 1.2], ":", color = "gray")
+        axs.set_xlim(-0.1, 1.1)
+        axs.set_ylim(-1.1, 1.1)
+        axs.set_xlabel("Real")
+        axs.set_ylabel("Imag")
+        plt.show()
+        
+
     def to_fourier(self, image):
         return jnp.fft.fftshift(jnp.fft.fft2(image))
 
