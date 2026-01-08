@@ -129,7 +129,7 @@ class OpticsDPC(optics.OpticsBF):
         def stats(n, v):
             if verbose:
                 print("{0:d} {1:.3e}".format(n, v))
-            return [n, v]
+            return [int(n), float(v)]
             
         fn = jax.jit(fun(Y, pats))
 
