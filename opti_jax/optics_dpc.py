@@ -29,14 +29,23 @@ class OpticsDPC(optics.OpticsBF):
         self.nj = nj
         
         
-    def compute_loss_tv(self, x, Y, pats, lval):
+    def compute_loss_tv_order1(self, x, Y, pats, lval):
         """
-        Total variation loss function.
+        Total variation loss function, first order.
         """
         yPred = self.dpc_illumination(x, pats)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness(x)*lval
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval
         return loss
-    
+
+
+    def compute_loss_tv_order2(self, x, Y, pats, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.dpc_illumination(x, pats)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval
+        return loss
+
     
     def dpc_illumination(self, xrc, pats):
         """
@@ -75,7 +84,7 @@ class OpticsDPC(optics.OpticsBF):
                 elif (k0 > 0.01):
                     p3.append([k0, k1])
                     
-        return [jnp.array(p0), jnp.array(p1), jnp.array(p2), jnp.array(p3)]
+        return jnp.array([jnp.array(p0), jnp.array(p1), jnp.array(p2), jnp.array(p3)])
 
 
     def plot_fit_images(self, Y, x, pats, vrange = 1.0e-2):
@@ -110,7 +119,7 @@ class OpticsDPC(optics.OpticsBF):
         plt.show()
 
 
-    def tv_smoothness(self, xrc):
+    def tv_smoothness_(self, xrc):
         """
         Total variation, real and complex parts calculated independently.
         """
@@ -118,21 +127,47 @@ class OpticsDPC(optics.OpticsBF):
         t2 = jnp.mean(jnp.abs(jnp.diff(xrc[1], axis = 0))) + jnp.mean(jnp.abs(jnp.diff(xrc[1], axis = 1)))
         return t1+t2
 
+    
+    def tv_smoothness_order1(self, xrc):
+        """
+        First order total variation, real and complex parts calculated independently.
+        """
+        t1 = jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 1)))
+        t2 = jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 1)))
+        return t1+t2
 
-    def tv_solve(self, Y, pats, lval = 1.0e-3, learningRate = 1.0e-3, verbose = True):
+    
+    def tv_smoothness_order2(self, xrc):
+        """
+        Second order total variation, real and complex parts calculated independently.
+        """
+        t1 = jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 0) - jnp.roll(xrc[0], -1, axis = 0))) + jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 1) - jnp.roll(xrc[0], -1, axis = 1)))
+        t2 = jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 0) - jnp.roll(xrc[1], -1, axis = 0))) + jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 1) - jnp.roll(xrc[1], -1, axis = 1)))
+        return t1+t2
+    
+
+    def tv_solve(self, Y, pats, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True):
         """
         Solve for best fit image with total variation regularization.
         """
-        def fun(y, pats):
-            return lambda x: self.compute_loss_tv(x, y, pats, lval)
+        def fun1(y, pats):
+            return lambda x: self.compute_loss_tv_order1(x, y, pats, lval)
+
+        def fun2(y, pats):
+            return lambda x: self.compute_loss_tv_order2(x, y, pats, lval)
 
         def stats(n, v):
             if verbose:
                 print("{0:d} {1:.3e}".format(n, v))
             return [int(n), float(v)]
-            
-        fn = jax.jit(fun(Y, pats))
 
+        if (order == 1):
+            fn = jax.jit(fun1(Y, pats))
+        elif (order == 2):
+            fn = jax.jit(fun2(Y, pats))
+        else:
+            assert False, f"Order {order} not available"
+            
         # Initialize
         yave = jnp.average(Y, axis = 0)
         x = jnp.array([yave, jnp.zeros_like(yave)])
