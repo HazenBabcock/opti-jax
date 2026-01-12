@@ -133,12 +133,27 @@ class OpticsBF(Optics):
                 pat.append([int(k0), int(k1)])
                 
         return jnp.array(pat)
-        
-        
+
+
     def patterned_illumination(self, xrc, rxy):
         """
         xrc is [real, complex] as not all Optax solvers handle complex numbers.
         For efficiency we roll the fourier transform instead of recalculating the illumination for all k values.
+        For efficiency we roll the mask, sum and then do the inverse fourier transform.
+        """
+        pim = jnp.zeros(xrc[0].shape, dtype = float)
+        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        for rx, ry in rxy:
+            pim += jnp.roll(self.mask, (-rx,-ry), (0,1)) * xrcFT
+        return self.intensity(self.from_fourier(pim)/float(len(rxy)))
+    
+        
+    def patterned_illumination_no_roll(self, xrc, rxy):
+        """
+        xrc is [real, complex] as not all Optax solvers handle complex numbers.
+        For efficiency we roll the fourier transform instead of recalculating the illumination for all k values.
+
+        This versions performs the inverse fourier transform for each illumination angle then adds the results.
         """
         pim = jnp.zeros(xrc[0].shape, dtype = float)
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
