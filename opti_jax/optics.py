@@ -171,3 +171,24 @@ class OpticsBF(Optics):
         plt.plot([-self.kmax, self.kmax], [0, 0], ":", color = "gray")
         plt.plot([0, 0], [-self.kmax, self.kmax], ":", color = "gray")
         plt.show()
+
+
+    def plot_stats(self, stats):
+        """
+        Plot solver convergence array values.
+        """
+        statsNp = np.array(stats)
+        print(statsNp.shape)
+        
+        fig, axs = plt.subplots(2, 1, figsize = (8, 8))
+        axs[0].plot(statsNp[:,0], statsNp[:,1])
+        axs[0].set_ylabel("Loss")
+        axs[0].set_xlabel("Iterations")
+        
+        axs[1].plot(statsNp[:,0], statsNp[:,1])
+        axs[1].set_ylabel("Loss")
+        axs[1].set_xlabel("Iterations")
+        axs[1].semilogy()
+        
+        plt.show()
+        
