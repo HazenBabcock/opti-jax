@@ -1,6 +1,6 @@
-## Opti-Jax ##
+## opti-jax ##
 
-(Scalar) optics using Jax and Optax.
+(Scalar) optics using [Jax](https://docs.jax.dev/en/latest/index.html) and [Optax](https://optax.readthedocs.io/en/latest/)
 
 This package uses scalar optics theory and Jax for the forward model for several brightfield imaging variations including differential phase contrast / quantative phase microscopy and fourier phytograpy. Jax's autodiff and solvers from Optax are used to solve the inverse problem, recovering the complex object that best fits the observed intensity measurements.
 
