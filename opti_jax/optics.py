@@ -112,6 +112,8 @@ class OpticsBF(Optics):
 
     def make_bf_pattern(self, maxNA, ik0, ik1):
         """
+        Approximate uniform illumination over an aperture with multiple point sources.
+        
         ik0 and ik1 are expected to be integer arrays.
         """
         pat = []
@@ -137,7 +139,7 @@ class OpticsBF(Optics):
         For efficiency we roll the fourier transform instead of recalculating the illumination for all k values.
         For efficiency we roll the mask, sum and then do the inverse fourier transform.
         """
-        pim = jnp.zeros(xrcFT.shape)
+        pim = jnp.zeros_like(xrcFT)
         for rx, ry in rxy:
             pim += jnp.roll(self.mask, (-rx,-ry), (0,1)) * xrcFT
         return self.intensity(self.from_fourier(pim)/float(len(rxy)))    
@@ -165,14 +167,14 @@ class OpticsBF(Optics):
         """
         Plot illumination pattern in k space.
         """
-        fig = plt.figure(figsize = figsize)
-        plt.plot(self.dk0*pat[:,0], self.dk1*pat[:,1], "o", ms = 4)
-        plt.plot([-1.1*self.kmax, 1.1*self.kmax], [0, 0], ":", color = "gray")
-        plt.plot([0, 0], [-1.1*self.kmax, 1.1*self.kmax], ":", color = "gray")
+        fig, axs = plt.subplots(1, 1, figsize = figsize)
+        axs.plot(self.dk0*pat[:,0], self.dk1*pat[:,1], "o", ms = 4)
+        axs.plot([-1.1*self.kmax, 1.1*self.kmax], [0, 0], ":", color = "gray")
+        axs.plot([0, 0], [-1.1*self.kmax, 1.1*self.kmax], ":", color = "gray")
 
         # Objective kmax.
         circ = plt.Circle((0.0, 0.0), radius = self.kmax, edgecolor="green", facecolor = "none", linestyle = ":")
-        plt.add_patch(circ)
+        axs.add_patch(circ)
 
         # Absolute kmax (for air objective)?
         #circ = plt.Circle((0.0, 0.0), radius = 0.5*jnp.pi, edgecolor="black", facecolor = "none", linestyle = ":")
