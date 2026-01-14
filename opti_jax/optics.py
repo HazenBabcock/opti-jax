@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import optax
 import scipy
 
 
@@ -33,14 +34,6 @@ class Optics(object):
 
         [self.g0,self.g1] = np.mgrid[-self.shape[0]//2 : self.shape[0]//2, -self.shape[1]//2 : self.shape[1]//2]
 
-        # Real space vectors.
-        #self.r0 = self.g0 * self.pixelSize
-        #self.r1 = self.g1 * self.pixelSize
-
-        # K space vectors.
-        #self.k0 = self.dk0 * self.g0
-        #self.k1 = self.dk1 * self.g1
-        
         k0 = self.dk0 * self.g0
         k1 = self.dk1 * self.g1
         self.k = np.sqrt(k0 * k0 + k1 * k1)
@@ -49,9 +42,6 @@ class Optics(object):
         self.kz = np.lib.scimath.sqrt(tmp * tmp - self.k * self.k)
         self.r = self.k/self.kmax
         self.kz[(self.r > 1.0)] = 0.0
-
-        #self.npixels = np.sum(self.r <= 1)
-        #self.norm = math.sqrt(self.r.size)
 
         # Mask for maximum pass frequency.
         self.mask = np.ones(self.shape)
@@ -138,25 +128,34 @@ class OpticsBF(Optics):
     def patterned_illumination(self, xrc, rxy):
         """
         xrc is [real, complex] as not all Optax solvers handle complex numbers.
+        """
+        return self.patterned_illumination_ft(self.to_fourier(self.illuminate(xrc, 0.0, 0.0)), rxy)
+
+    
+    def patterned_illumination_ft(self, xrcFT, rxy):
+        """
         For efficiency we roll the fourier transform instead of recalculating the illumination for all k values.
         For efficiency we roll the mask, sum and then do the inverse fourier transform.
         """
-        pim = jnp.zeros(xrc[0].shape, dtype = float)
-        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        pim = jnp.zeros(xrcFT.shape)
         for rx, ry in rxy:
             pim += jnp.roll(self.mask, (-rx,-ry), (0,1)) * xrcFT
-        return self.intensity(self.from_fourier(pim)/float(len(rxy)))
+        return self.intensity(self.from_fourier(pim)/float(len(rxy)))    
+
     
-        
     def patterned_illumination_no_roll(self, xrc, rxy):
         """
         xrc is [real, complex] as not all Optax solvers handle complex numbers.
-        For efficiency we roll the fourier transform instead of recalculating the illumination for all k values.
+        """
+        return self.patterned_illumination_no_roll_ft(self.to_fourier(self.illuminate(xrc, 0.0, 0.0)), rxy)
 
+    
+    def patterned_illumination_no_roll_ft(self, xrcFT, rxy):
+        """
+        For efficiency we roll the fourier transform instead of recalculating the illumination for all k values.
         This versions performs the inverse fourier transform for each illumination angle then adds the results.
         """
-        pim = jnp.zeros(xrc[0].shape, dtype = float)
-        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        pim = jnp.zeros(xrcFT.shape)
         for rx, ry in rxy:
             pim = pim + self.intensity(self.from_fourier(jnp.roll(xrcFT, (rx,ry), (0,1))*self.mask))
         return pim/float(len(rxy))
@@ -168,8 +167,17 @@ class OpticsBF(Optics):
         """
         fig = plt.figure(figsize = figsize)
         plt.plot(self.dk0*pat[:,0], self.dk1*pat[:,1], "o", ms = 4)
-        plt.plot([-self.kmax, self.kmax], [0, 0], ":", color = "gray")
-        plt.plot([0, 0], [-self.kmax, self.kmax], ":", color = "gray")
+        plt.plot([-1.1*self.kmax, 1.1*self.kmax], [0, 0], ":", color = "gray")
+        plt.plot([0, 0], [-1.1*self.kmax, 1.1*self.kmax], ":", color = "gray")
+
+        # Objective kmax.
+        circ = plt.Circle((0.0, 0.0), radius = self.kmax, edgecolor="green", facecolor = "none", linestyle = ":")
+        plt.add_patch(circ)
+
+        # Absolute kmax (for air objective)?
+        #circ = plt.Circle((0.0, 0.0), radius = 0.5*jnp.pi, edgecolor="black", facecolor = "none", linestyle = ":")
+        #axs.add_patch(circ)
+        
         plt.show()
 
 
@@ -192,3 +200,78 @@ class OpticsBF(Optics):
         
         plt.show()
         
+
+    def tv_smoothness_order1(self, xrc):
+        """
+        First order total variation in X/Y, real and complex parts calculated independently.
+        """
+        tv = jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 1)))
+        tv = tv + jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 1)))
+        return tv
+
+    
+    def tv_smoothness_order2(self, xrc):
+        """
+        Second order total variation in X/Y, real and complex parts calculated independently.
+        """
+        tv = jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 0) - jnp.roll(xrc[0], -1, axis = 0)))
+        tv = tv + jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 1) - jnp.roll(xrc[0], -1, axis = 1)))
+        tv = tv + jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 0) - jnp.roll(xrc[1], -1, axis = 0)))
+        tv = tv + jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 1) - jnp.roll(xrc[1], -1, axis = 1)))
+        return tv
+
+
+    def tv_solve(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True):
+        """
+        Solve for best fit image with total variation regularization.
+
+        The images to fit (Y) should be normalized to have intensities in the range 0.0 - 1.0.
+        """
+        def fun1(y, illm):
+            return lambda x: self.compute_loss_tv_order1(x, y, illm, lval)
+
+        def fun2(y, illm):
+            return lambda x: self.compute_loss_tv_order2(x, y, illm, lval)
+
+        def stats(n, v):
+            if verbose:
+                print("{0:d} {1:.3e}".format(n, v))
+            return [int(n), float(v)]
+
+        if (order == 1):
+            fn = jax.jit(fun1(Y, illm))
+        elif (order == 2):
+            fn = jax.jit(fun2(Y, illm))
+        else:
+            assert False, f"Order {order} not available"
+            
+        # Initialize
+        yave = jnp.average(Y, axis = 0)
+        x = jnp.array([yave, jnp.zeros_like(yave)])
+
+        opt = optax.adam(learning_rate = learningRate)
+        state = opt.init(x)
+
+        n = 0
+        nv = []
+        for i in range(self.ni):
+            for j in range(self.nj):
+                v, g = jax.value_and_grad(fn)(x)
+                if (n == 0):
+                    nv.append(stats(n, v))
+                    
+                u, state = opt.update(g, state, x, value=v, grad=g, value_fn=fn)
+                x = x + u
+
+                # Clip to positive absorption values (x[0]).
+                x = jnp.array([jnp.clip(x[0], 0.0, 1.0), x[1]])
+
+                # Clip vector length to 1.0.
+                rescale = 1.0/jnp.maximum(jnp.ones(x[0].shape), jnp.abs(x[0] + 1j*x[1]))
+                x = jnp.array([x[0]*rescale, x[1]*rescale])
+
+                n += 1
+
+            nv.append(stats(n, v))
+
+        return x, nv

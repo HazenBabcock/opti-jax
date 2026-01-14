@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
-import scipy
 
 import opti_jax.optics as optics
 
@@ -52,8 +51,9 @@ class OpticsDPC(optics.OpticsBF):
         Return images for each of the DPC illumination patterns.
         """
         tmp = []
+        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
         for pat in pats:
-            tmp.append(self.patterned_illumination(xrc, pat))
+            tmp.append(self.patterned_illumination_ft(xrcFT, pat))
         return jnp.array(tmp)
     
         
@@ -106,7 +106,7 @@ class OpticsDPC(optics.OpticsBF):
         plt.show()
         
 
-    def plot_patterns(self, pats, figsize = (5,5)):
+    def plot_patterns(self, pats, figsize = (5.5,5)):
         """
         Plot illumination patterns in k space.
         """
@@ -114,88 +114,18 @@ class OpticsDPC(optics.OpticsBF):
 
         for ii, pat in enumerate(pats):
             axs[ii].plot(self.dk0*pat[:,0], self.dk1*pat[:,1], "o", ms = 4)
-            axs[ii].plot([-self.kmax, self.kmax], [0, 0], ":", color = "gray")
-            axs[ii].plot([0, 0], [-self.kmax, self.kmax], ":", color = "gray")
+            axs[ii].plot([-1.1*self.kmax, 1.1*self.kmax], [0, 0], ":", color = "gray")
+            axs[ii].plot([0, 0], [-1.1*self.kmax, 1.1*self.kmax], ":", color = "gray")
+
+            # Objective kmax
+            circ = plt.Circle((0.0, 0.0), radius = self.kmax, edgecolor="green", facecolor = "none", linestyle = ":")
+            axs[ii].add_patch(circ)
+        
         plt.show()
 
 
-    def tv_smoothness_(self, xrc):
+    def tv_solve(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-2, order = 2, verbose = True):
         """
-        Total variation, real and complex parts calculated independently.
+        Defaults tuned for DPC.
         """
-        t1 = jnp.mean(jnp.abs(jnp.diff(xrc[0], axis = 0))) + jnp.mean(jnp.abs(jnp.diff(xrc[0], axis = 1)))
-        t2 = jnp.mean(jnp.abs(jnp.diff(xrc[1], axis = 0))) + jnp.mean(jnp.abs(jnp.diff(xrc[1], axis = 1)))
-        return t1+t2
-
-    
-    def tv_smoothness_order1(self, xrc):
-        """
-        First order total variation, real and complex parts calculated independently.
-        """
-        t1 = jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 1)))
-        t2 = jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 1)))
-        return t1+t2
-
-    
-    def tv_smoothness_order2(self, xrc):
-        """
-        Second order total variation, real and complex parts calculated independently.
-        """
-        t1 = jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 0) - jnp.roll(xrc[0], -1, axis = 0))) + jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 1) - jnp.roll(xrc[0], -1, axis = 1)))
-        t2 = jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 0) - jnp.roll(xrc[1], -1, axis = 0))) + jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 1) - jnp.roll(xrc[1], -1, axis = 1)))
-        return t1+t2
-    
-
-    def tv_solve(self, Y, pats, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True):
-        """
-        Solve for best fit image with total variation regularization.
-        """
-        def fun1(y, pats):
-            return lambda x: self.compute_loss_tv_order1(x, y, pats, lval)
-
-        def fun2(y, pats):
-            return lambda x: self.compute_loss_tv_order2(x, y, pats, lval)
-
-        def stats(n, v):
-            if verbose:
-                print("{0:d} {1:.3e}".format(n, v))
-            return [int(n), float(v)]
-
-        if (order == 1):
-            fn = jax.jit(fun1(Y, pats))
-        elif (order == 2):
-            fn = jax.jit(fun2(Y, pats))
-        else:
-            assert False, f"Order {order} not available"
-            
-        # Initialize
-        yave = jnp.average(Y, axis = 0)
-        x = jnp.array([yave, jnp.zeros_like(yave)])
-
-        opt = optax.adam(learning_rate = learningRate)
-        state = opt.init(x)
-
-        n = 0
-        nv = []
-        for i in range(self.ni):
-            for j in range(self.nj):
-                v, g = jax.value_and_grad(fn)(x)
-                if (n == 0):
-                    nv.append(stats(n, v))
-                    
-                u, state = opt.update(g, state, x, value=v, grad=g, value_fn=fn)
-                x = x + u
-
-                # Clip to positive absorption values (x[0]).
-                x = jnp.array([jnp.clip(x[0], 0.0, 1.0), x[1]])
-
-                # Clip vector length to 1.0.
-                rescale = 1.0/jnp.maximum(jnp.ones(x[0].shape), jnp.abs(x[0] + 1j*x[1]))
-                x = jnp.array([x[0]*rescale, x[1]*rescale])
-
-                n += 1
-
-            nv.append(stats(n, v))
-
-        return x, nv
-    
+        return super().tv_solve(Y, illm, lval = lval, learningRate = learningRate, order = order, verbose = verbose)
