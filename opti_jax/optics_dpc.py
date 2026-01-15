@@ -48,12 +48,36 @@ class OpticsDPC(optics.OpticsBF):
     
     def dpc_illumination(self, xrc, masks):
         """
-        Return images for each of the DPC illumination patterns.
+        Return images for each of the DPC illumination pattern masks.
         """
         tmp = []
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
         for mask in masks:
             tmp.append(self.intensity(self.from_fourier(xrcFT*mask)))
+        return jnp.array(tmp)
+
+
+    def dpc_illumination_patterns(self, xrc, pats):
+        """
+        Return images for each of the DPC illumination patterns.
+        """
+        tmp = []
+        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        for rxy in pats:
+            tmp.append(self.patterned_illumination_ft(xrcFT, rxy))
+        return jnp.array(tmp)
+
+
+    def dpc_illumination_patterns_no_roll(self, xrc, pats):
+        """
+        Return images for each of the DPC illumination patterns.
+
+        This is "Truth" to test against.
+        """
+        tmp = []
+        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        for rxy in pats:
+            tmp.append(self.patterned_illumination_no_roll_ft(xrcFT, rxy))
         return jnp.array(tmp)
     
         
@@ -85,19 +109,6 @@ class OpticsDPC(optics.OpticsBF):
                     p3.append([k0, k1])
                     
         return jnp.array([jnp.array(p0), jnp.array(p1), jnp.array(p2), jnp.array(p3)])
-
-
-    def make_masks(self, pats):
-        """
-        Make fourier space mask for each of the illumination patterns.
-        """
-        masks = []
-        for rxy in pats:
-            mask = np.zeros(self.shape)
-            for rx, ry in rxy:
-                mask += np.roll(self.mask, (-rx,-ry), (0,1))
-            masks.append(mask/float(len(rxy)))
-        return jnp.array(masks)
         
 
     def plot_fit_images(self, Y, x, pats, vrange = 1.0e-2):

@@ -41,7 +41,7 @@ class Optics(object):
         tmp = 1.0/self.wavelength
         self.kz = np.lib.scimath.sqrt(tmp * tmp - self.k * self.k)
         self.r = self.k/self.kmax
-        self.kz[(self.r > 1.0)] = 0.0
+        self.kz[(self.k > tmp)] = 0.0
 
         # Mask for maximum pass frequency.
         self.mask = np.ones(self.shape)
@@ -125,6 +125,26 @@ class OpticsBF(Optics):
                 pat.append([int(k0), int(k1)])
                 
         return jnp.array(pat)
+
+
+    def make_mask(self, rxy):
+        """
+        Make a Fourier space mask for an illumination pattern.
+        """
+        mask = np.zeros(self.shape)
+        for rx, ry in rxy:
+            mask += np.roll(self.mask, (-rx,-ry), (0,1))
+        return jnp.array(mask/float(len(rxy)))
+
+    
+    def make_masks(self, pats):
+        """
+        Make a Fourier space mask for each of the illumination patterns.
+        """
+        masks = []
+        for rxy in pats:
+            masks.append(self.make_mask(rxy))
+        return jnp.array(masks)
 
 
     def patterned_illumination(self, xrc, rxy):
