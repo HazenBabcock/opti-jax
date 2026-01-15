@@ -23,37 +23,37 @@ class OpticsDPC(optics.OpticsBF):
         Default is 1000 iterations for solving (ni * nj).
         """
         super().__init__(**kwds)
-        
+
         self.ni = ni
         self.nj = nj
         
         
-    def compute_loss_tv_order1(self, x, Y, pats, lval):
+    def compute_loss_tv_order1(self, x, Y, masks, lval):
         """
         Total variation loss function, first order.
         """
-        yPred = self.dpc_illumination(x, pats)
+        yPred = self.dpc_illumination(x, masks)
         loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval
         return loss
 
 
-    def compute_loss_tv_order2(self, x, Y, pats, lval):
+    def compute_loss_tv_order2(self, x, Y, masks, lval):
         """
         Total variation loss function, first order.
         """
-        yPred = self.dpc_illumination(x, pats)
+        yPred = self.dpc_illumination(x, masks)
         loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval
         return loss
 
     
-    def dpc_illumination(self, xrc, pats):
+    def dpc_illumination(self, xrc, masks):
         """
         Return images for each of the DPC illumination patterns.
         """
         tmp = []
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
-        for pat in pats:
-            tmp.append(self.patterned_illumination_ft(xrcFT, pat))
+        for mask in masks:
+            tmp.append(self.intensity(self.from_fourier(xrcFT*mask)))
         return jnp.array(tmp)
     
         
@@ -87,11 +87,24 @@ class OpticsDPC(optics.OpticsBF):
         return jnp.array([jnp.array(p0), jnp.array(p1), jnp.array(p2), jnp.array(p3)])
 
 
+    def make_masks(self, pats):
+        """
+        Make fourier space mask for each of the illumination patterns.
+        """
+        masks = []
+        for rxy in pats:
+            mask = np.zeros(self.shape)
+            for rx, ry in rxy:
+                mask += np.roll(self.mask, (-rx,-ry), (0,1))
+            masks.append(mask/float(len(rxy)))
+        return jnp.array(masks)
+        
+
     def plot_fit_images(self, Y, x, pats, vrange = 1.0e-2):
         """
         Plot DPC images and corresponding fit images.
         """
-        YPred = self.dpc_illumination(x, pats)
+        YPred = self.dpc_illumination(x, self.make_masks(pats))
 
         fig, axs = plt.subplots(3, len(Y), figsize = (4*len(Y), 12))
         for i in range(len(Y)):
@@ -128,4 +141,5 @@ class OpticsDPC(optics.OpticsBF):
         """
         Defaults tuned for DPC.
         """
-        return super().tv_solve(Y, illm, lval = lval, learningRate = learningRate, order = order, verbose = verbose)
+        masks = self.make_masks(illm)
+        return super().tv_solve(Y, masks, lval = lval, learningRate = learningRate, order = order, verbose = verbose)
