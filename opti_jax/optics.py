@@ -158,6 +158,9 @@ class OpticsBF(Optics):
         """
         For efficiency we roll the fourier transform instead of recalculating the illumination for all k values.
         For efficiency we roll the mask, sum and then do the inverse fourier transform.
+
+        Note that this is an approximation, the resulting image is slightly different from
+        patterned_illumination_no_roll_ft().
         """
         pim = jnp.zeros_like(xrcFT)
         for rx, ry in rxy:
