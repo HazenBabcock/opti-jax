@@ -8,6 +8,7 @@ Hazen 2026.01
 
 import jax
 import jax.numpy as jnp
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
@@ -58,6 +59,26 @@ class OpticsFPty(optics.OpticsBF):
         for rx, ry in rxy:
             tmp.append(self.intensity(self.from_fourier(jnp.roll(self.mask, (-rx,-ry), (0,1)) * xrcFT)))
         return jnp.array(tmp)
+    
+
+    def plot_aperture(self, axs, axy, rscaler = 1.0):
+        """
+        Overlay aperture on FT of an image.
+        """
+        d0 = rscaler*2*self.kmax/self.dk0
+        d1 = rscaler*2*self.kmax/self.dk1
+        for sign in [1,-1]:
+            cxy = (sign*axy[1] + self.shape[1]//2, sign*axy[0] + self.shape[0]//2)
+            circ = matplotlib.patches.Ellipse(cxy, d1, d0, edgecolor="red", facecolor = "none", linestyle = "-")
+            axs.add_patch(circ)
+
+
+    def plot_ft_and_aperture(self, axs, img, axy, vmax = 4.0, rscaler = 1.0):
+        """
+        Plot FT of an image with the aperture overlaid.
+        """
+        axs.imshow(np.log(np.abs(np.fft.fftshift(np.fft.fft2(img))) + 1.0e-3), cmap = "gray", vmin = 0, vmax = vmax)
+        self.plot_aperture(axs, axy, rscaler = rscaler)
 
 
     def plot_illumination_vectors(self, rxy, scale = 2.0, figsize = (5,5)):
