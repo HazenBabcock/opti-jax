@@ -60,7 +60,7 @@ class OpticsZStack(optics.OpticsBF):
         """
         Defaults tuned for a bright field focus stack.
         """
-        return super().tv_solve(Y, zdata, lval = lval, learningRate = learningRate, order = order, verbose = verbose)
+        return super().tv_solve(Y, [jnp.array(zdata[0]), jnp.array(zdata[1])], lval = lval, learningRate = learningRate, order = order, verbose = verbose)
 
 
     def z_stack(self, xrc, rxy, zvals):
