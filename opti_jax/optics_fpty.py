@@ -57,7 +57,7 @@ class OpticsFPty(optics.OpticsBF):
         tmp = []
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
         for rx, ry in rxy:
-            tmp.append(self.intensity(self.from_fourier(jnp.roll(self.mask, (-rx,-ry), (0,1)) * xrcFT)))
+            tmp.append(self.intensity(self.from_fourier(jnp.roll(xrcFT, (rx,ry), (0,1)) * self.mask)))
         return jnp.array(tmp)
     
 
@@ -67,9 +67,10 @@ class OpticsFPty(optics.OpticsBF):
         """
         d0 = rscaler*2*self.kmax/self.dk0
         d1 = rscaler*2*self.kmax/self.dk1
-        for sign in [1,-1]:
+        colors = ["red", "green"]
+        for i, sign in enumerate([1,-1]):
             cxy = (sign*axy[1] + self.shape[1]//2, sign*axy[0] + self.shape[0]//2)
-            circ = matplotlib.patches.Ellipse(cxy, d1, d0, edgecolor="red", facecolor = "none", linestyle = "-")
+            circ = matplotlib.patches.Ellipse(cxy, d1, d0, edgecolor = colors[i], facecolor = "none", linestyle = "-")
             axs.add_patch(circ)
 
 
@@ -105,3 +106,77 @@ class OpticsFPty(optics.OpticsBF):
         Defaults tuned for fourier phytography.
         """
         return super().tv_solve(Y, illm, lval = lval, learningRate = learningRate, order = order, verbose = verbose)
+
+
+class OpticsFPtyVP(OpticsFPty):
+    """
+    Fourier Phytography illumination with variable pupil.
+    """
+    def __init__(self, pupilDelay = 50, **kwds):
+        """
+        Default is to start updating the pupil function after 50 iterations.
+        """
+        super().__init__(**kwds)        
+        self.pupilDelay = pupilDelay
+        
+        
+    def compute_loss_tv_order1(self, x, Y, rxy, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.fpty_illumination(x, rxy)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval[0] + self.pupil_smoothness_order1_x(x[2])*lval[1]
+        return loss
+
+
+    def compute_loss_tv_order2(self, x, Y, rxy, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.fpty_illumination(x, rxy)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval[0] + self.pupil_smoothness_order2_x(x[2])*lval[1]
+        return loss
+
+    
+    def fpty_illumination(self, xrc, rxy):
+        """
+        Return images for each of the illumination 'angles'.
+
+        rxy is the (integer) shift value to use in k space for each illumination angle.
+        """
+        tmp = []
+        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        pupilFn = self.mask*jnp.exp(1j*xrc[2])
+        for rx, ry in rxy:
+            tmp.append(self.intensity(self.from_fourier(jnp.roll(xrcFT, (rx,ry), (0,1)) * pupilFn)))
+        return jnp.array(tmp)
+
+    
+    def rescale(self, x, n):
+        """
+        Clip maximum reconstructed image magnitude to 1.0.
+        """
+        #rescale = 1.0/jnp.maximum(jnp.ones(x[0].shape), jnp.abs(x[0] + 1j*x[1]))
+        #return jnp.array([x[0]*rescale, x[1]*rescale, x[2]])
+        
+        if (n > self.pupilDelay):
+            return x
+        else:
+            return jnp.array([x[0], x[1], jnp.zeros_like(x[0])])
+        
+    
+    def tv_solve(self, Y, illm, lval = 1.0e-6, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True):
+        """
+        Defaults tuned for fourier phytography.
+        """
+        x, nv = super().tv_solve(Y, illm, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose)
+        x = jnp.mod(x + jnp.pi, 2*jnp.pi) - jnp.pi
+        return x, nv
+
+
+    def x0(self, Y):
+        """
+        Initialize w/ additional term for pupil function.
+        """
+        yave = jnp.average(Y, axis = 0)
+        return jnp.array([yave, jnp.zeros_like(yave), jnp.zeros_like(yave)])

@@ -66,20 +66,36 @@ class Optics(object):
         return [self.kmax/self.dk0, self.kmax/self.dk1]
 
 
-    def plot_x(self, x, figsize = (4.75, 8)):
+    def plot_x(self, x, figsize = (8, 8)):
         """
         Plot values of x in the complex plane.
         """
         fig, axs = plt.subplots(1, 1, figsize = figsize)
 
         axs.plot(x[0].flatten(), x[1].flatten(), ".", alpha = 0.01)
-        axs.plot([-0.2, 1.2], [0.0, 0.0], ":", color = "gray")
+        axs.plot([-1.2, 1.2], [0.0, 0.0], ":", color = "gray")
         axs.plot([0.0, 0.0], [-1.2, 1.2], ":", color = "gray")
-        axs.set_xlim(-0.1, 1.1)
+        axs.set_xlim(-1.1, 1.1)
         axs.set_ylim(-1.1, 1.1)
         axs.set_xlabel("Real")
         axs.set_ylabel("Imag")
         plt.show()
+        
+
+#    def plot_x(self, x, figsize = (4.75, 8)):
+#        """
+#        Plot values of x in the complex plane.
+#        """
+#        fig, axs = plt.subplots(1, 1, figsize = figsize)
+#
+#        axs.plot(x[0].flatten(), x[1].flatten(), ".", alpha = 0.01)
+#        axs.plot([-0.2, 1.2], [0.0, 0.0], ":", color = "gray")
+#        axs.plot([0.0, 0.0], [-1.2, 1.2], ":", color = "gray")
+#        axs.set_xlim(-0.1, 1.1)
+#        axs.set_ylim(-1.1, 1.1)
+#        axs.set_xlabel("Real")
+#        axs.set_ylabel("Imag")
+#        plt.show()        
         
 
     def to_fourier(self, image):
@@ -165,7 +181,7 @@ class OpticsBF(Optics):
         pim = jnp.zeros_like(xrcFT)
         for rx, ry in rxy:
             pim += jnp.roll(self.mask, (-rx,-ry), (0,1)) * xrcFT
-        return self.intensity(self.from_fourier(pim)/float(len(rxy)))    
+        return self.intensity(self.from_fourier(pim)/float(len(rxy)))
 
     
     def patterned_illumination_no_roll(self, xrc, rxy):
@@ -224,27 +240,60 @@ class OpticsBF(Optics):
         axs[1].semilogy()
         
         plt.show()
-        
+
+
+    def pupil_smoothness_order1_x(self, p):
+        """
+        First order total variation in pupil function.
+        """
+        return jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 0)))) + jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 1))))
+    
+
+    def pupil_smoothness_order2_x(self, p):
+        """
+        Second order total variation in pupil function.
+        """
+        tv = jnp.mean(self.mask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 0) - jnp.roll(p, -1, axis = 0))))
+        return tv + jnp.mean(self.mask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 1) - jnp.roll(p, -1, axis = 1))))
+
+
+    def rescale(self, x, n):
+        """
+        Clip maximum reconstructed image magnitude to 1.0.
+        """
+        return x
+        #rescale = 1.0/jnp.maximum(jnp.ones(x[0].shape), jnp.abs(x[0] + 1j*x[1]))
+        #return jnp.array([x[0]*rescale, x[1]*rescale])
+
 
     def tv_smoothness_order1(self, xrc):
         """
         First order total variation in X/Y, real and complex parts calculated independently.
         """
-        tv = jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[0] - jnp.roll(xrc[0], 1, axis = 1)))
-        tv = tv + jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 0))) + jnp.mean(jnp.abs(xrc[1] - jnp.roll(xrc[1], 1, axis = 1)))
-        return tv
+        return self.tv_smoothness_order1_x(xrc[0]) + self.tv_smoothness_order1_x(xrc[1])
+
+
+    def tv_smoothness_order1_x(self, x):
+        """
+        First order total variation in X/Y.
+        """
+        return jnp.mean(jnp.abs(x - jnp.roll(x, 1, axis = 0))) + jnp.mean(jnp.abs(x - jnp.roll(x, 1, axis = 1)))
 
     
     def tv_smoothness_order2(self, xrc):
         """
         Second order total variation in X/Y, real and complex parts calculated independently.
         """
-        tv = jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 0) - jnp.roll(xrc[0], -1, axis = 0)))
-        tv = tv + jnp.mean(jnp.abs(2*xrc[0] - jnp.roll(xrc[0], 1, axis = 1) - jnp.roll(xrc[0], -1, axis = 1)))
-        tv = tv + jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 0) - jnp.roll(xrc[1], -1, axis = 0)))
-        tv = tv + jnp.mean(jnp.abs(2*xrc[1] - jnp.roll(xrc[1], 1, axis = 1) - jnp.roll(xrc[1], -1, axis = 1)))
-        return tv
+        return self.tv_smoothness_order2_x(xrc[0]) + self.tv_smoothness_order2_x(xrc[1])
 
+    
+    def tv_smoothness_order2_x(self, x):
+        """
+        Second order total variation in X/Y.
+        """
+        tv = jnp.mean(jnp.abs(2*x - jnp.roll(x, 1, axis = 0) - jnp.roll(x, -1, axis = 0)))
+        return tv + jnp.mean(jnp.abs(2*x - jnp.roll(x, 1, axis = 1) - jnp.roll(x, -1, axis = 1)))
+    
 
     def tv_solve(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True):
         """
@@ -271,9 +320,7 @@ class OpticsBF(Optics):
             assert False, f"Order {order} not available"
             
         # Initialize
-        yave = jnp.average(Y, axis = 0)
-        x = jnp.array([yave, jnp.zeros_like(yave)])
-
+        x = self.x0(Y)
         opt = optax.adam(learning_rate = learningRate)
         state = opt.init(x)
 
@@ -286,17 +333,15 @@ class OpticsBF(Optics):
                     nv.append(stats(n, v))
                     
                 u, state = opt.update(g, state, x, value=v, grad=g, value_fn=fn)
-                x = x + u
-
-                # Clip to positive absorption values (x[0]).
-                x = jnp.array([jnp.clip(x[0], 0.0, 1.0), x[1]])
-
-                # Clip vector length to 1.0.
-                rescale = 1.0/jnp.maximum(jnp.ones(x[0].shape), jnp.abs(x[0] + 1j*x[1]))
-                x = jnp.array([x[0]*rescale, x[1]*rescale])
-
+                x = self.rescale(x + u, n)
+                
                 n += 1
 
             nv.append(stats(n, v))
 
         return x, nv
+
+
+    def x0(self, Y):
+        yave = jnp.average(Y, axis = 0)
+        return jnp.array([yave, jnp.zeros_like(yave)])
