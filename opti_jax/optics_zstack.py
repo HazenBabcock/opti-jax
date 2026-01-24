@@ -166,3 +166,49 @@ class OpticsZStackVP(OpticsZStack):
                 pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, (rx,ry), (0,1)) * zshift * pupilFn))
             tmp.append(pim/float(len(rxy)))
         return jnp.array(tmp)
+
+
+class OpticsZStackVPMZ(OpticsZStackVP):
+    """
+    Z (focus) stack with variable pupil, solve at multiple z offsets.
+    """
+    def __init__(self, pupilDelay = 50, **kwds):
+        """
+        Default is to start updating the pupil function after 50 iterations.
+        """
+        super().__init__(**kwds)
+
+        self.lastX = None
+        
+
+    def tv_solve(self, Y, zdata, zoffsets, lval = 1.0e-5, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True):
+        """
+        Solve at multiple z offsets.
+        """
+        self.lastX = None
+        
+        xs = []
+        nvs = []
+        for zo in zoffsets:
+            if verbose:
+                print("Solving at z offset", zo)
+                
+            x, nv = super().tv_solve(Y, [zdata[0], zdata[1] + zo], lval = lval, lvalp = lvalp, learningRate = learningRate, order = order, verbose = verbose)
+            self.lastX = x
+            xs.append(x)
+            nvs.append(nvs)
+            if verbose:
+                print()
+
+        return xs, nvs
+
+
+    def x0(self, Y):
+        """
+        Initialize w/ additional term for pupil function.
+        """
+        if self.lastX is None:
+            ybest = Y[len(Y)//2]
+            return jnp.array([ybest, jnp.zeros_like(ybest), jnp.zeros_like(ybest)])
+        else:
+            return jnp.copy(self.lastX)
