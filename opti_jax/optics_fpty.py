@@ -154,11 +154,8 @@ class OpticsFPtyVP(OpticsFPty):
     
     def rescale(self, x, n):
         """
-        Clip maximum reconstructed image magnitude to 1.0.
+        Apply any constraints or corrections to x.
         """
-        #rescale = 1.0/jnp.maximum(jnp.ones(x[0].shape), jnp.abs(x[0] + 1j*x[1]))
-        #return jnp.array([x[0]*rescale, x[1]*rescale, x[2]])
-        
         if (n > self.pupilDelay):
             return x
         else:
