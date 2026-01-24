@@ -196,7 +196,7 @@ class OpticsZStackVPMZ(OpticsZStackVP):
             x, nv = super().tv_solve(Y, [zdata[0], zdata[1] + zo], lval = lval, lvalp = lvalp, learningRate = learningRate, order = order, verbose = verbose)
             self.lastX = x
             xs.append(x)
-            nvs.append(nvs)
+            nvs.append(nv)
             if verbose:
                 print()
 
