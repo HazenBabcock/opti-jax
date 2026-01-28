@@ -17,3 +17,6 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Programming Language :: Python"
 ]
+
+[tool.setuptools]
+packages = ["opti_jax"]
