@@ -17,10 +17,18 @@ class Optics(object):
     """
     Base class for JAX optics.
     """
-    def __init__(self, NA = None, pixelSize = None, shape = None, wavelength = None, **kwds):
+    def __init__(self, NA = None, NI = 1.0, pixelSize = None, shape = None, wavelength = None, **kwds):
+        """
+        NA - objective numerical aperature.
+        NI - refractive index of immersion media.
+        pixelSixe - pixel size in microns.
+        shape - image dimensions in pixes.
+        wavelength - wavelength in microns.
+        """
         super().__init__(**kwds)
 
         self.NA = NA
+        self.NI = NI
         self.pixelSize = pixelSize
         self.shape = shape
         self.wavelength = wavelength
@@ -38,12 +46,12 @@ class Optics(object):
         k1 = self.dk1 * self.g1
         self.k = np.sqrt(k0 * k0 + k1 * k1)
 
-        tmp = 1.0/self.wavelength
+        tmp = self.NI/self.wavelength
         self.kz = np.lib.scimath.sqrt(tmp * tmp - self.k * self.k)
-        self.r = self.k/self.kmax
         self.kz[(self.k > tmp)] = 0.0
 
         # Mask for maximum pass frequency.
+        self.r = self.k/self.kmax
         self.mask = np.ones(self.shape)
         self.mask[(self.r > 1.0)] = 0.0
 
