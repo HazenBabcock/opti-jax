@@ -132,7 +132,14 @@ class OpticsBF(Optics):
         """
         tmp = xrc[0] + 1j*xrc[1]
         return tmp * jnp.exp(1j * (k0 * self.g0 + k1 * self.g1))
-    
+
+
+    def l2_error(self, x, Y, sData):
+        """
+        Calculate current l2 fit error.
+        """
+        return jnp.mean(optax.l2_loss(self.y_pred(x, sData), Y))
+
 
     def make_bf_pattern(self, maxNA, ik0, ik1):
         """
@@ -222,10 +229,6 @@ class OpticsBF(Optics):
         # Objective kmax.
         circ = plt.Circle((0.0, 0.0), radius = self.kmax, edgecolor="green", facecolor = "none", linestyle = ":")
         axs.add_patch(circ)
-
-        # Absolute kmax (for air objective)?
-        #circ = plt.Circle((0.0, 0.0), radius = 0.5*jnp.pi, edgecolor="black", facecolor = "none", linestyle = ":")
-        #axs.add_patch(circ)
         
         plt.show()
 
@@ -274,6 +277,55 @@ class OpticsBF(Optics):
         #return jnp.array([x[0]*rescale, x[1]*rescale])
 
 
+    def solve_tv(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True):
+        """
+        Solve for best fit image with total variation regularization.
+
+        sData - static data/settings.
+        """
+        def fun1():
+            return lambda x: self.compute_loss_tv_order1(x, Y, sData, lval)
+
+        def fun2():
+            return lambda x: self.compute_loss_tv_order2(x, Y, sData, lval)
+
+        def stats():
+            l2e = jl2e(x, Y, sData)
+            if verbose:
+                print("{0:d} {1:.3e} {2:.3e}".format(n, v, l2e))
+            return [int(n), float(v), float(l2e)]
+
+        jl2e = jax.jit(self.l2_error)
+        if (order == 1):
+            fn = jax.jit(fun1())
+        elif (order == 2):
+            fn = jax.jit(fun2())
+        else:
+            assert False, f"Order {order} not available"
+            
+        # Initialize
+        x = self.x0(Y)
+        opt = optax.adam(learning_rate = learningRate)
+        state = opt.init(x)
+        
+        n = 0
+        nv = []
+        for i in range(self.ni):
+            for j in range(self.nj):
+                v, g = jax.value_and_grad(fn)(x)
+                if (n == 0):
+                    nv.append(stats())
+                    
+                u, state = opt.update(g, state, x, value=v, grad=g, value_fn=fn)
+                x = self.rescale(x + u, n)
+                
+                n += 1
+
+            nv.append(stats())
+
+        return x, nv
+
+
     def tv_smoothness_order1(self, xrc):
         """
         First order total variation in X/Y, real and complex parts calculated independently.
@@ -301,55 +353,8 @@ class OpticsBF(Optics):
         """
         tv = jnp.mean(jnp.abs(2*x - jnp.roll(x, 1, axis = 0) - jnp.roll(x, -1, axis = 0)))
         return tv + jnp.mean(jnp.abs(2*x - jnp.roll(x, 1, axis = 1) - jnp.roll(x, -1, axis = 1)))
+
     
-
-    def tv_solve(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True):
-        """
-        Solve for best fit image with total variation regularization.
-
-        The images to fit (Y) should be normalized to have intensities in the range 0.0 - 1.0.
-        """
-        def fun1(y, illm):
-            return lambda x: self.compute_loss_tv_order1(x, y, illm, lval)
-
-        def fun2(y, illm):
-            return lambda x: self.compute_loss_tv_order2(x, y, illm, lval)
-
-        def stats(n, v):
-            if verbose:
-                print("{0:d} {1:.3e}".format(n, v))
-            return [int(n), float(v)]
-
-        if (order == 1):
-            fn = jax.jit(fun1(Y, illm))
-        elif (order == 2):
-            fn = jax.jit(fun2(Y, illm))
-        else:
-            assert False, f"Order {order} not available"
-            
-        # Initialize
-        x = self.x0(Y)
-        opt = optax.adam(learning_rate = learningRate)
-        state = opt.init(x)
-
-        n = 0
-        nv = []
-        for i in range(self.ni):
-            for j in range(self.nj):
-                v, g = jax.value_and_grad(fn)(x)
-                if (n == 0):
-                    nv.append(stats(n, v))
-                    
-                u, state = opt.update(g, state, x, value=v, grad=g, value_fn=fn)
-                x = self.rescale(x + u, n)
-                
-                n += 1
-
-            nv.append(stats(n, v))
-
-        return x, nv
-
-
     def x0(self, Y):
         yave = jnp.average(Y, axis = 0)
         return jnp.array([yave, jnp.zeros_like(yave)])
