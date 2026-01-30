@@ -270,14 +270,53 @@ class OpticsBF(Optics):
 
     def rescale(self, x, n):
         """
-        Clip maximum reconstructed image magnitude to 1.0.
+        Apply any adjustments / limits to x.
         """
         return x
-        #rescale = 1.0/jnp.maximum(jnp.ones(x[0].shape), jnp.abs(x[0] + 1j*x[1]))
-        #return jnp.array([x[0]*rescale, x[1]*rescale])
+    
+
+    def solve_illumination(self, x, Y, sData, illm, learningRate = 1.0e-3, verbose = True):
+        """
+        Solve for best fit illumination intensities with current best object estimate.
+
+        sData - static data/settings.
+        """
+        def fun():
+            return lambda illm: self.compute_loss_illumination(x, Y, sData, illm)
+
+        def stats():
+            l2e = jl2e(x, Y, [sData[0], illm, sData[1]])
+            if verbose:
+                print("{0:d} {1:.3e} {2:.3e}".format(n, v, l2e))
+            return [int(n), float(v), float(l2e)]
+
+        jl2e = jax.jit(self.l2_error)
+        fn = jax.jit(fun())
+            
+        # Initialize
+        illm = jnp.copy(jnp.array(illm))
+        opt = optax.adam(learning_rate = learningRate)
+        state = opt.init(illm)
+        
+        n = 0
+        nv = []
+        for i in range(self.ni):
+            for j in range(self.nj):
+                v, g = jax.value_and_grad(fn)(illm)
+                if (n == 0):
+                    nv.append(stats())
+                    
+                u, state = opt.update(g, state, illm, value=v, grad=g, value_fn=fn)
+                illm = jnp.fmax(illm + u, 0)
+                
+                n += 1
+
+            nv.append(stats())
+
+        return illm, nv
 
 
-    def solve_tv(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True):
+    def solve_tv(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True, x0 = None):
         """
         Solve for best fit image with total variation regularization.
 
@@ -304,7 +343,11 @@ class OpticsBF(Optics):
             assert False, f"Order {order} not available"
             
         # Initialize
-        x = self.x0(Y)
+        if x0 is None:
+            x = self.x0(Y)
+        else:
+            x = jnp.copy(x0)
+
         opt = optax.adam(learning_rate = learningRate)
         state = opt.init(x)
         
