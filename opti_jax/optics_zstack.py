@@ -47,14 +47,32 @@ class OpticsZStack(optics.OpticsBF):
         return loss
 
 
+    def compute_loss_tv_order1_ft(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order, fourier space.
+        """
+        yPred = self.y_pred_ft(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1_ft(x)*lval
+        return loss
+    
+
     def compute_loss_tv_order2(self, x, Y, sData, lval):
         """
         Total variation loss function, first order.
         """
         yPred = self.y_pred(x, sData)
         loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval
-        return loss 
+        return loss
 
+
+    def compute_loss_tv_order2_ft(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred_ft(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2_ft(x)*lval
+        return loss
+    
 
     def make_bf_pattern(self, maxNA, ik0, ik1):
         """
@@ -113,6 +131,23 @@ class OpticsZStack(optics.OpticsBF):
                 pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift * self.mask)) * intensities[i]
             tmp.append(pim/np.sum(intensities))
         return jnp.array(tmp)
+
+    
+    def y_pred_ft(self, xrc, sData):
+        """
+        Return images for each of the illumination z values, fourier space.
+        """
+        [rxy, intensities, zvals] = sData
+        
+        tmp = []
+        xrcFT = xrc[0] + 1j*xrc[1]
+        for zv in zvals:
+            zshift = jnp.exp(1j * 2.0 * jnp.pi * self.kz * zv)
+            pim = jnp.zeros(self.shape)
+            for i in range(len(rxy)):
+                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift * self.mask)) * intensities[i]
+            tmp.append(pim/np.sum(intensities))
+        return jnp.array(tmp)    
 
 
 class OpticsZStackVP(OpticsZStack):

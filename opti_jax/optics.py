@@ -123,6 +123,13 @@ class OpticsBF(Optics):
         """
         return jnp.mean(optax.l2_loss(self.y_pred(x, sData), Y))
 
+    
+    def l2_error_ft(self, x, Y, sData):
+        """
+        Calculate current l2 fit error, fourier space.
+        """
+        return jnp.mean(optax.l2_loss(self.y_pred_ft(x, sData), Y))
+    
 
     def make_bf_pattern(self, maxNA, ik0, ik1):
         """
@@ -306,6 +313,61 @@ class OpticsBF(Optics):
         sData - static data/settings.
         """
         def fun1():
+            return lambda x: self.compute_loss_tv_order1_ft(x, Y, sData, lval)
+
+        def fun2():
+            return lambda x: self.compute_loss_tv_order2_ft(x, Y, sData, lval)
+
+        def stats():
+            l2e = jl2e(x, Y, sData)
+            if verbose:
+                print("{0:d} {1:.3e} {2:.3e}".format(n, v, l2e))
+            return [int(n), float(v), float(l2e)]
+
+        jl2e = jax.jit(self.l2_error)
+        if (order == 1):
+            fn = jax.jit(fun1())
+        elif (order == 2):
+            fn = jax.jit(fun2())
+        else:
+            assert False, f"Order {order} not available"
+            
+        # Initialize
+        if x0 is None:
+            x = self.x0(Y)
+        else:
+            x = jnp.copy(x0)
+
+        x = 
+        opt = optax.adam(learning_rate = learningRate)
+        state = opt.init(x)
+        
+        n = 0
+        nv = []
+        for i in range(self.ni):
+            for j in range(self.nj):
+                v, g = jax.value_and_grad(fn)(x)
+                if (n == 0):
+                    nv.append(stats())
+                    
+                u, state = opt.update(g, state, x, value=v, grad=g, value_fn=fn)
+                x = self.rescale(x + u, n)
+                
+                n += 1
+
+            nv.append(stats())
+
+        return x, nv
+
+
+    def solve_tv_ft(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True, x0 = None):
+        """
+        Solve for best fit image with total variation regularization.
+        This version solves in fourier space.
+
+        sData - static data/settings.
+        """    
+        def fun1():
             return lambda x: self.compute_loss_tv_order1(x, Y, sData, lval)
 
         def fun2():
@@ -331,6 +393,13 @@ class OpticsBF(Optics):
         else:
             x = jnp.copy(x0)
 
+        # Start in fourier space.
+        xft = self.to_fourier(x[0] + 1j*x[1])
+        if (len(x) == 2):
+            x = jnp.array([xft.real, xft.imag])
+        else:
+            x = jnp.array([xft.real, xft.imag] + x[2:])
+            
         opt = optax.adam(learning_rate = learningRate)
         state = opt.init(x)
         
@@ -349,8 +418,15 @@ class OpticsBF(Optics):
 
             nv.append(stats())
 
+        # Return x in real space.
+        xift = self.from_fourier(x[0] + 1j*x[1])
+        if (len(x) == 2):
+            x = jnp.array([xift.real, xift.imag])
+        else:
+            x = jnp.array([xift.real, xift.imag] + x[2:])
+        
         return x, nv
-
+    
 
     def tv_smoothness_order1(self, xrc):
         """
@@ -358,6 +434,12 @@ class OpticsBF(Optics):
         """
         return self.tv_smoothness_order1_x(xrc[0]) + self.tv_smoothness_order1_x(xrc[1])
 
+    def tv_smoothness_order1_ft(self, xft):
+        """
+        First order total variation in X/Y, x is in fourier space.
+        """
+        x = xft[0] + 1j*xft[1]
+        return jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.dk0*x)) + jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.dk1*x))
 
     def tv_smoothness_order1_x(self, x):
         """
@@ -373,6 +455,16 @@ class OpticsBF(Optics):
         return self.tv_smoothness_order2_x(xrc[0]) + self.tv_smoothness_order2_x(xrc[1])
 
     
+    def tv_smoothness_order2_ft(self, xft):
+        """
+        Second order total variation in X/Y, x is in fourier space.
+        """
+        x = xft[0] + 1j*xft[1]
+        ed0 = jnp.power(1j*2.0*jnp.pi*self.dk0, 2)
+        ed1 = jnp.power(1j*2.0*jnp.pi*self.dk1, 2)
+        return jnp.mean(jnp.abs(ed0*x)) + jnp.mean(jnp.abs(ed1*x))
+
+
     def tv_smoothness_order2_x(self, x):
         """
         Second order total variation in X/Y.
