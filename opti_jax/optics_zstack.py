@@ -217,7 +217,7 @@ class OpticsZStackVP(OpticsZStack):
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
         pupilFn = self.mask*jnp.exp(1j*xrc[2])        
         for zv in zvals:
-            zshift = jnp.exp(1j * 2.0 * jnp.pi * self.kz * zv)
+            zshift = jnp.exp(1j * 2.0 * jnp.pi * self.kz * zv) * pupilFn
             pim = jnp.zeros(self.shape)
             for i in range(len(rxy)):
                 pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift * self.mask)) * intensities[i]
