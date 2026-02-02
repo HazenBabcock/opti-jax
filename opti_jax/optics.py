@@ -34,17 +34,23 @@ class Optics(object):
         self.wavelength = wavelength
 
         self.kmax = self.NA/self.wavelength
+        self.norm0 = 1.0/jnp.sqrt(self.shape[0])
+        self.norm1 = 1.0/jnp.sqrt(self.shape[1])
 
         self.dk0 = 1.0/(self.shape[0] * self.pixelSize)
         self.dk1 = 1.0/(self.shape[1] * self.pixelSize)
         self.rmax0 = self.kmax/self.dk0
         self.rmax1 = self.kmax/self.dk1
 
-        [self.g0,self.g1] = np.mgrid[-self.shape[0]//2 : self.shape[0]//2, -self.shape[1]//2 : self.shape[1]//2]
+        [self.g0, self.g1] = np.mgrid[-self.shape[0]//2 : self.shape[0]//2, -self.shape[1]//2 : self.shape[1]//2]
 
-        k0 = self.dk0 * self.g0
-        k1 = self.dk1 * self.g1
-        self.k = np.sqrt(k0 * k0 + k1 * k1)
+        # Translation vectors in X/Y.
+        self.tk0 = self.g0/self.shape[0]
+        self.tk1 = self.g1/self.shape[1]
+        
+        self.k0 = self.dk0 * self.g0
+        self.k1 = self.dk1 * self.g1
+        self.k = np.sqrt(self.k0 * self.k0 + self.k1 * self.k1)
 
         tmp = self.NI/self.wavelength
         self.kz = np.lib.scimath.sqrt(tmp * tmp - self.k * self.k)
@@ -313,10 +319,10 @@ class OpticsBF(Optics):
         sData - static data/settings.
         """
         def fun1():
-            return lambda x: self.compute_loss_tv_order1_ft(x, Y, sData, lval)
+            return lambda x: self.compute_loss_tv_order1(x, Y, sData, lval)
 
         def fun2():
-            return lambda x: self.compute_loss_tv_order2_ft(x, Y, sData, lval)
+            return lambda x: self.compute_loss_tv_order2(x, Y, sData, lval)
 
         def stats():
             l2e = jl2e(x, Y, sData)
@@ -338,7 +344,6 @@ class OpticsBF(Optics):
         else:
             x = jnp.copy(x0)
 
-        x = 
         opt = optax.adam(learning_rate = learningRate)
         state = opt.init(x)
         
@@ -363,15 +368,20 @@ class OpticsBF(Optics):
     def solve_tv_ft(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True, x0 = None):
         """
         Solve for best fit image with total variation regularization.
+        
         This version solves in fourier space.
+        
+        This does not work very well, maybe because the difference in magnitudes
+        of the coefficients is so much larger in fourier space? Or something is
+        not right?
 
         sData - static data/settings.
         """    
         def fun1():
-            return lambda x: self.compute_loss_tv_order1(x, Y, sData, lval)
+            return lambda x: self.compute_loss_tv_order1_ft(x, Y, sData, lval)
 
         def fun2():
-            return lambda x: self.compute_loss_tv_order2(x, Y, sData, lval)
+            return lambda x: self.compute_loss_tv_order2_ft(x, Y, sData, lval)
 
         def stats():
             l2e = jl2e(x, Y, sData)
@@ -379,7 +389,7 @@ class OpticsBF(Optics):
                 print("{0:d} {1:.3e} {2:.3e}".format(n, v, l2e))
             return [int(n), float(v), float(l2e)]
 
-        jl2e = jax.jit(self.l2_error)
+        jl2e = jax.jit(self.l2_error_ft)
         if (order == 1):
             fn = jax.jit(fun1())
         elif (order == 2):
@@ -439,7 +449,7 @@ class OpticsBF(Optics):
         First order total variation in X/Y, x is in fourier space.
         """
         x = xft[0] + 1j*xft[1]
-        return jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.dk0*x)) + jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.dk1*x))
+        return self.norm0*jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.tk0*x)) + self.norm0*jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.tk1*x))
 
     def tv_smoothness_order1_x(self, x):
         """
@@ -460,9 +470,9 @@ class OpticsBF(Optics):
         Second order total variation in X/Y, x is in fourier space.
         """
         x = xft[0] + 1j*xft[1]
-        ed0 = jnp.power(1j*2.0*jnp.pi*self.dk0, 2)
-        ed1 = jnp.power(1j*2.0*jnp.pi*self.dk1, 2)
-        return jnp.mean(jnp.abs(ed0*x)) + jnp.mean(jnp.abs(ed1*x))
+        ed0 = jnp.power(1j*2.0*jnp.pi*self.tk0, 2)
+        ed1 = jnp.power(1j*2.0*jnp.pi*self.tk1, 2)
+        return self.norm0*jnp.mean(jnp.abs(ed0*x)) + self.norm1*jnp.mean(jnp.abs(ed1*x))
 
 
     def tv_smoothness_order2_x(self, x):
