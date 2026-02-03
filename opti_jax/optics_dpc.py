@@ -14,9 +14,9 @@ import optax
 import opti_jax.optics as optics
 
 
-class OpticsDPC(optics.OpticsBF):
+class OpticsDPCBase(optics.OpticsBF):
     """
-    DPC illumination, nominally 4 patterns.
+    Base class for DPC illumination.
     """
     def __init__(self, ni = 20, nj = 50, **kwds):
         """
@@ -26,40 +26,16 @@ class OpticsDPC(optics.OpticsBF):
 
         self.ni = ni
         self.nj = nj
-        
-        
-    def compute_loss_tv_order1(self, x, Y, masks, lval):
-        """
-        Total variation loss function, first order.
-        """
-        yPred = self.dpc_illumination(x, masks)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval
-        return loss
-
-
-    def compute_loss_tv_order2(self, x, Y, masks, lval):
-        """
-        Total variation loss function, first order.
-        """
-        yPred = self.dpc_illumination(x, masks)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval
-        return loss
-
-    
-    def dpc_illumination(self, xrc, masks):
-        """
-        Return images for each of the DPC illumination pattern masks.
-        """
-        tmp = []
-        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
-        for mask in masks:
-            tmp.append(self.intensity(self.from_fourier(xrcFT*mask)))
-        return jnp.array(tmp)
 
 
     def dpc_illumination_patterns(self, xrc, pats):
         """
         Return images for each of the DPC illumination patterns.
+
+        Note that this is an approximation. We are adding the images in Fourier
+        space and then doing in the inverse transform. This makes the different
+        illuminations add coherently which is not correct, but seems to be a
+        'good enough' approximation.
         """
         tmp = []
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
@@ -99,37 +75,38 @@ class OpticsDPC(optics.OpticsBF):
                     continue
 
                 if (k1 < -0.01):
-                    p0.append([k0, k1])
+                    p0.append([int(k0), int(k1)])
                 elif (k1 > 0.01):
-                    p1.append([k0, k1])
+                    p1.append([int(k0), int(k1)])
 
                 if (k0 < -0.01):
-                    p2.append([k0, k1])
+                    p2.append([int(k0), int(k1)])
                 elif (k0 > 0.01):
-                    p3.append([k0, k1])
+                    p3.append([int(k0), int(k1)])
                     
-        return jnp.array([jnp.array(p0), jnp.array(p1), jnp.array(p2), jnp.array(p3)])
-        
+        return jnp.array([jnp.array(p0).astype(int), jnp.array(p1).astype(int), jnp.array(p2).astype(int), jnp.array(p3).astype(int)]).astype(int)
 
-    def plot_fit_images(self, Y, x, pats, vrange = 1.0e-2):
+
+    def make_mask(self, rxy):
         """
-        Plot DPC images and corresponding fit images.
+        Make a Fourier space mask for an illumination pattern.
         """
-        YPred = self.dpc_illumination(x, self.make_masks(pats))
+        mask = np.zeros(self.shape)
+        for rx, ry in rxy:
+            mask += np.roll(self.mask, (-rx,-ry), (0,1))
+        return jnp.array(mask/float(len(rxy)))
 
-        fig, axs = plt.subplots(3, len(Y), figsize = (4*len(Y), 12))
-        for i in range(len(Y)):
-            axs[0,i].imshow(Y[i], cmap = "gray", vmin = 0.0, vmax = 1.0)
-            axs[1,i].imshow(YPred[i], cmap = "gray", vmin = 0.0, vmax = 1.0)
-            axs[2,i].imshow(Y[i]-YPred[i], cmap = "gray", vmin = -vrange, vmax = vrange)
-            
-            for j in range(2):
-                axs[j,i].set_xticks([])
-                axs[j,i].set_yticks([])
+    
+    def make_masks(self, pats):
+        """
+        Make a Fourier space mask for each of the illumination patterns.
+        """
+        masks = []
+        for rxy in pats:
+            masks.append(self.make_mask(rxy))
+        return jnp.array(masks)
 
-        plt.show()
-        
-
+    
     def plot_patterns(self, pats, figsize = (5.5,5)):
         """
         Plot illumination patterns in k space.
@@ -148,9 +125,78 @@ class OpticsDPC(optics.OpticsBF):
         plt.show()
 
 
-    def tv_solve(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-2, order = 2, verbose = True):
+class OpticsDPC(OpticsDPCBase):
+    """
+    DPC illumination, nominally 4 patterns.
+    """
+    def plot_fit_images(self, Y, x, pats, vrange = 1.0e-2):
+        """
+        Plot DPC images and corresponding fit images.
+        """
+        super().plot_fit_images(Y, x, self.make_masks(pats), vrange = vrange)
+
+    
+    def solve_tv(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-2, order = 2, verbose = True, x0 = None):
         """
         Defaults tuned for DPC.
         """
         masks = self.make_masks(illm)
-        return super().tv_solve(Y, masks, lval = lval, learningRate = learningRate, order = order, verbose = verbose)
+        return super().solve_tv(Y, masks, lval = lval, learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
+
+
+    def y_pred(self, xrc, sData):
+        """
+        Return images for each of the DPC illumination pattern masks.
+        """
+        tmp = []
+        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        for mask in sData:
+            tmp.append(self.intensity(self.from_fourier(xrcFT*mask)))
+        return jnp.array(tmp)    
+    
+
+class OpticsDPCVP(optics.OpticsBFVP, OpticsDPCBase):
+    """
+    DPC illumination, nominally 4 patterns, with variable pupil function.
+
+    Note that this is significantly slower as now we are no longer making
+    the assumption that the coherent and incoherent images are the same.
+    """
+#    def plot_fit_images(self, Y, x, sData, vrange = 1.0e-2):
+#        """
+#        Plot images and corresponding fit images.
+#        """
+#        optics.OpticsBFVP.plot_fit_images(self, Y, x, sData, vrange = vrange)
+        
+        
+    def solve_tv(self, Y, illm, lval = 1.0e-3, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True, x0 = None):
+        """
+        Defaults tuned for a bright field focus stack with variable pupil function.
+        """
+        #x, nv = optics.OpticsBFVP.solve_tv(self, Y, illm, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
+        x, nv = super().solve_tv(Y, illm, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
+        x2 = jnp.mod(x[2] + jnp.pi, 2*jnp.pi) - jnp.pi
+        return jnp.array([x[0], x[1], x2]), nv
+
+
+    def x0(self, Y):
+        """
+        Initialize w/ additional term for pupil function.
+        """
+        yave = jnp.average(Y, axis = 0)
+        return jnp.array([yave, jnp.zeros_like(yave), jnp.zeros_like(yave)])
+    
+
+    def y_pred(self, xrc, sData):
+        """
+        Return images for each of the illumination patterns.
+        """
+        tmp = []
+        xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
+        pupilFn = self.mask*jnp.exp(1j*xrc[2])        
+        for rxy in sData:
+            pim = jnp.zeros(self.shape)
+            for i in range(len(rxy)):
+                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * pupilFn * self.mask))
+            tmp.append(pim/float(len(rxy)))
+        return jnp.array(tmp)

@@ -38,42 +38,6 @@ class OpticsZStack(optics.OpticsBF):
         return loss
     
 
-    def compute_loss_tv_order1(self, x, Y, sData, lval):
-        """
-        Total variation loss function, first order.
-        """
-        yPred = self.y_pred(x, sData)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval
-        return loss
-
-
-    def compute_loss_tv_order1_ft(self, x, Y, sData, lval):
-        """
-        Total variation loss function, first order, fourier space.
-        """
-        yPred = self.y_pred_ft(x, sData)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1_ft(x)*lval
-        return loss
-    
-
-    def compute_loss_tv_order2(self, x, Y, sData, lval):
-        """
-        Total variation loss function, first order.
-        """
-        yPred = self.y_pred(x, sData)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval
-        return loss
-
-
-    def compute_loss_tv_order2_ft(self, x, Y, sData, lval):
-        """
-        Total variation loss function, first order.
-        """
-        yPred = self.y_pred_ft(x, sData)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2_ft(x)*lval
-        return loss
-    
-
     def make_bf_pattern(self, maxNA, ik0, ik1):
         """
         Approximate uniform illumination over an aperture with multiple point sources.
@@ -147,52 +111,16 @@ class OpticsZStack(optics.OpticsBF):
             for i in range(len(rxy)):
                 pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift * self.mask)) * intensities[i]
             tmp.append(pim/np.sum(intensities))
-        return jnp.array(tmp)    
+        return jnp.array(tmp)
 
 
-class OpticsZStackVP(OpticsZStack):
+class OpticsZStackVP(OpticsZStack, optics.OpticsBFVP):
     """
     Z (focus) stack with variable pupil.
     """
-    def __init__(self, pupilDelay = 50, **kwds):
-        """
-        Default is to start updating the pupil function after 50 iterations.
-        """
-        super().__init__(**kwds)        
-        self.pupilDelay = pupilDelay
-
-
-    def compute_loss_tv_order1(self, x, Y, sData, lval):
-        """
-        Total variation loss function, first order.
-        """
-        yPred = self.y_pred(x, sData)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval[0] + self.pupil_smoothness_order1_x(x[2])*lval[1]        
-        return loss
-
-
-    def compute_loss_tv_order2(self, x, Y, sData, lval):
-        """
-        Total variation loss function, first order.
-        """
-        yPred = self.y_pred(x, sData)
-        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval[0] + self.pupil_smoothness_order2_x(x[2])*lval[1]
-        return loss
-
-    
-    def rescale(self, x, n):
-        """
-        Apply any constraints or corrections to x.
-        """
-        if (n > self.pupilDelay):
-            return x
-        else:
-            return jnp.array([x[0], x[1], jnp.zeros_like(x[0])])
-
-    
     def solve_tv(self, Y, sData, lval = 1.0e-5, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True, x0 = None):
         """
-        Defaults tuned for a bright field focus stack.
+        Defaults tuned for a bright field focus stack with variable pupil function.
         """
         x, nv = super().solve_tv(Y, sData, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
         x2 = jnp.mod(x[2] + jnp.pi, 2*jnp.pi) - jnp.pi

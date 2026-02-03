@@ -94,6 +94,7 @@ class Optics(object):
         axs.set_xlabel("Real")
         axs.set_ylabel("Imag")
         plt.show()
+        
 
     def to_fourier(self, image):
         return jnp.fft.fftshift(jnp.fft.fft2(image))
@@ -114,6 +115,42 @@ class OpticsBF(Optics):
             sumFT = sumFT + jnp.roll(xrcFT, (rx,ry), (0,1))
         return sumFT
 
+
+    def compute_loss_tv_order1(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval
+        return loss
+
+
+    def compute_loss_tv_order1_ft(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order, fourier space.
+        """
+        yPred = self.y_pred_ft(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1_ft(x)*lval
+        return loss
+    
+
+    def compute_loss_tv_order2(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval
+        return loss
+
+
+    def compute_loss_tv_order2_ft(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred_ft(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2_ft(x)*lval
+        return loss
+    
 
     def illuminate(self, xrc, k0, k1):
         """
@@ -152,26 +189,6 @@ class OpticsBF(Optics):
                 pat.append([int(k0), int(k1)])
                 
         return jnp.array(pat)
-
-
-    def make_mask(self, rxy):
-        """
-        Make a Fourier space mask for an illumination pattern.
-        """
-        mask = np.zeros(self.shape)
-        for rx, ry in rxy:
-            mask += np.roll(self.mask, (-rx,-ry), (0,1))
-        return jnp.array(mask/float(len(rxy)))
-
-    
-    def make_masks(self, pats):
-        """
-        Make a Fourier space mask for each of the illumination patterns.
-        """
-        masks = []
-        for rxy in pats:
-            masks.append(self.make_mask(rxy))
-        return jnp.array(masks)
 
 
     def patterned_illumination(self, xrc, rxy):
@@ -213,6 +230,25 @@ class OpticsBF(Optics):
         return pim/float(len(rxy))
 
 
+    def plot_fit_images(self, Y, x, sData, vrange = 1.0e-2):
+        """
+        Plot images and corresponding fit images.
+        """
+        YPred = self.y_pred(x, sData)
+
+        fig, axs = plt.subplots(3, len(Y), figsize = (4*len(Y), 12))
+        for i in range(len(Y)):
+            axs[0,i].imshow(Y[i], cmap = "gray", vmin = 0.0, vmax = 1.0)
+            axs[1,i].imshow(YPred[i], cmap = "gray", vmin = 0.0, vmax = 1.0)
+            axs[2,i].imshow(Y[i]-YPred[i], cmap = "gray", vmin = -vrange, vmax = vrange)
+            
+            for j in range(2):
+                axs[j,i].set_xticks([])
+                axs[j,i].set_yticks([])
+
+        plt.show()
+
+        
     def plot_pattern(self, pat, figsize = (5,5)):
         """
         Plot illumination pattern in k space.
@@ -486,3 +522,43 @@ class OpticsBF(Optics):
     def x0(self, Y):
         yave = jnp.average(Y, axis = 0)
         return jnp.array([yave, jnp.zeros_like(yave)])
+
+
+class OpticsBFVP(OpticsBF):
+    """
+    Brightfield illumination with variable pupil function.
+    """
+    def __init__(self, pupilDelay = 50, **kwds):
+        """
+        Default is to start updating the pupil function after 50 iterations.
+        """
+        super().__init__(**kwds)        
+        self.pupilDelay = pupilDelay
+
+
+    def compute_loss_tv_order1(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order1(x)*lval[0] + self.pupil_smoothness_order1_x(x[2])*lval[1]        
+        return loss
+
+
+    def compute_loss_tv_order2(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval[0] + self.pupil_smoothness_order2_x(x[2])*lval[1]
+        return loss
+
+    
+    def rescale(self, x, n):
+        """
+        Apply any constraints or corrections to x.
+        """
+        if (n > self.pupilDelay):
+            return x
+        else:
+            return jnp.array([x[0], x[1], jnp.zeros_like(x[0])])
