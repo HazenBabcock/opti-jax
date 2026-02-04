@@ -162,18 +162,10 @@ class OpticsDPCVP(optics.OpticsBFVP, OpticsDPCBase):
     Note that this is significantly slower as now we are no longer making
     the assumption that the coherent and incoherent images are the same.
     """
-#    def plot_fit_images(self, Y, x, sData, vrange = 1.0e-2):
-#        """
-#        Plot images and corresponding fit images.
-#        """
-#        optics.OpticsBFVP.plot_fit_images(self, Y, x, sData, vrange = vrange)
-        
-        
     def solve_tv(self, Y, illm, lval = 1.0e-3, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True, x0 = None):
         """
         Defaults tuned for a bright field focus stack with variable pupil function.
         """
-        #x, nv = optics.OpticsBFVP.solve_tv(self, Y, illm, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
         x, nv = super().solve_tv(Y, illm, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
         x2 = jnp.mod(x[2] + jnp.pi, 2*jnp.pi) - jnp.pi
         return jnp.array([x[0], x[1], x2]), nv
@@ -197,6 +189,6 @@ class OpticsDPCVP(optics.OpticsBFVP, OpticsDPCBase):
         for rxy in sData:
             pim = jnp.zeros(self.shape)
             for i in range(len(rxy)):
-                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * pupilFn * self.mask))
+                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * pupilFn))
             tmp.append(pim/float(len(rxy)))
         return jnp.array(tmp)

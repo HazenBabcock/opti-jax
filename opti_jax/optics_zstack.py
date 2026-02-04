@@ -106,10 +106,10 @@ class OpticsZStack(optics.OpticsBF):
         tmp = []
         xrcFT = xrc[0] + 1j*xrc[1]
         for zv in zvals:
-            zshift = jnp.exp(1j * 2.0 * jnp.pi * self.kz * zv)
+            zshift = jnp.exp(1j * 2.0 * jnp.pi * self.kz * zv) * self.mask
             pim = jnp.zeros(self.shape)
             for i in range(len(rxy)):
-                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift * self.mask)) * intensities[i]
+                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift)) * intensities[i]
             tmp.append(pim/np.sum(intensities))
         return jnp.array(tmp)
 
@@ -143,11 +143,11 @@ class OpticsZStackVP(OpticsZStack, optics.OpticsBFVP):
 
         tmp = []
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
-        pupilFn = self.mask*jnp.exp(1j*xrc[2])        
+        pupilFn = self.mask*jnp.exp(1j*xrc[2])
         for zv in zvals:
             zshift = jnp.exp(1j * 2.0 * jnp.pi * self.kz * zv) * pupilFn
             pim = jnp.zeros(self.shape)
             for i in range(len(rxy)):
-                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift * self.mask)) * intensities[i]
+                pim += self.intensity(self.from_fourier(jnp.roll(xrcFT, rxy[i], (0,1)) * zshift)) * intensities[i]
             tmp.append(pim/np.sum(intensities))
         return jnp.array(tmp)
