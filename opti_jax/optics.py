@@ -44,7 +44,7 @@ class Optics(object):
 
         [self.g0, self.g1] = np.mgrid[-self.shape[0]//2 : self.shape[0]//2, -self.shape[1]//2 : self.shape[1]//2]
 
-        # Translation vectors in X/Y.
+        # Translation vectors in X/Y/Z.
         self.tk0 = self.g0/self.shape[0]
         self.tk1 = self.g1/self.shape[1]
         
@@ -307,11 +307,14 @@ class OpticsBF(Optics):
         return x
     
 
-    def solve_illumination(self, x, Y, sData, illm, learningRate = 1.0e-3, verbose = True):
+    def solve_illumination(self, x, Y, sData, illm, learningRate = 1.0e-3, optimizer = None, verbose = True):
         """
         Solve for best fit illumination intensities with current best object estimate.
 
         sData - static data/settings.
+        illm - current illumination pattern and intensities.
+        learningRate - learning rate to use for default ADAM optimizer.
+        optimizer - an optax optimizer, default is the ADAM optimizer.
         """
         def fun():
             return lambda illm: self.compute_loss_illumination(x, Y, sData, illm)
@@ -327,8 +330,9 @@ class OpticsBF(Optics):
             
         # Initialize
         illm = jnp.copy(jnp.array(illm))
-        opt = optax.adam(learning_rate = learningRate)
-        state = opt.init(illm)
+        if optimizer is None:
+            optimizer = optax.adam(learning_rate = learningRate)
+        state = optimizer.init(illm)
         
         n = 0
         nv = []
@@ -338,7 +342,7 @@ class OpticsBF(Optics):
                 if (n == 0):
                     nv.append(stats())
                     
-                u, state = opt.update(g, state, illm, value=v, grad=g, value_fn=fn)
+                u, state = optimizer.update(g, state, illm, value=v, grad=g, value_fn=fn)
                 illm = jnp.fmax(illm + u, 0)
                 
                 n += 1
@@ -348,11 +352,17 @@ class OpticsBF(Optics):
         return illm, nv
 
 
-    def solve_tv(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-3, order = 1, verbose = True, x0 = None):
+    def solve_tv(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-3, optimizer = None, order = 1, verbose = True, x0 = None):
         """
         Solve for best fit image with total variation regularization.
 
+        lval - lambda value for TV regularization.
         sData - static data/settings.
+        illm - current illumination pattern and intensities.
+        learningRate - learning rate to use for default ADAM optimizer.
+        optimizer - an optax optimizer, default is the ADAM optimizer.
+        order - TV order regularization to use.
+        x0 - starting solution.
         """
         def fun1():
             return lambda x: self.compute_loss_tv_order1(x, Y, sData, lval)
@@ -380,8 +390,9 @@ class OpticsBF(Optics):
         else:
             x = jnp.copy(x0)
 
-        opt = optax.adam(learning_rate = learningRate)
-        state = opt.init(x)
+        if optimizer is None:
+            optimizer = optax.adam(learning_rate = learningRate)
+        state = optimizer.init(x)
         
         n = 0
         nv = []
@@ -391,7 +402,7 @@ class OpticsBF(Optics):
                 if (n == 0):
                     nv.append(stats())
                     
-                u, state = opt.update(g, state, x, value=v, grad=g, value_fn=fn)
+                u, state = optimizer.update(g, state, x, value=v, grad=g, value_fn=fn)
                 x = self.rescale(x + u, n)
                 
                 n += 1
