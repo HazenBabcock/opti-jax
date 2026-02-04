@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optax
 import scipy
+import skimage
 
 
 class Optics(object):
@@ -21,7 +22,7 @@ class Optics(object):
         """
         NA - objective numerical aperature.
         NI - refractive index of immersion media.
-        pixelSixe - pixel size in microns.
+        pixelSize - pixel size in microns.
         shape - image dimensions in pixes.
         wavelength - wavelength in microns.
         """
@@ -150,7 +151,28 @@ class OpticsBF(Optics):
         yPred = self.y_pred_ft(x, sData)
         loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2_ft(x)*lval
         return loss
-    
+
+
+    def correct_drift(self, Y, drift):
+        """
+        Correct image position based on drift estimate.
+        """
+        Yc = []
+        for i in range(len(Y)):
+            tform = skimage.transform.AffineTransform(translation = [drift[i][1], drift[i][0]])
+            Yc.append(skimage.transform.warp(np.array(Y[i]), inverse_map = tform.inverse, preserve_range = True, mode = "edge", order = 3))
+        return jnp.array(Yc)
+
+
+    def estimate_drift(self, Y, yPred, upsample = 100):
+        """
+        Estimate drift of observed images relative to fit estimated images.
+        """
+        drift = []
+        for i in range(len(Y)):
+            drift.append(skimage.registration.phase_cross_correlation(Y[i], yPred[i], upsample_factor = upsample)[0])
+        return jnp.array(drift)
+
 
     def illuminate(self, xrc, k0, k1):
         """
@@ -270,7 +292,6 @@ class OpticsBF(Optics):
         Plot solver convergence array values.
         """
         statsNp = np.array(stats)
-        print(statsNp.shape)
         
         fig, axs = plt.subplots(2, 1, figsize = (8, 8))
         axs[0].plot(statsNp[:,0], statsNp[:,1])
