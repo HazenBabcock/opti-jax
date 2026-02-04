@@ -65,11 +65,17 @@ class OpticsZStack(optics.OpticsBF):
         plt.show()
     
     
-    def solve_tv(self, Y, sData, lval = 1.0e-5, learningRate = 1.0e-1, order = 2, verbose = True, x0 = None):
+    def solve_tv(self, Y, sData, lval = 1.0e-5, learningRate = 1.0e-1, optimizer = None, order = 2, verbose = True, x0 = None):
         """
         Defaults tuned for a bright field focus stack.
         """
-        return super().solve_tv(Y, sData, lval = lval, learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
+        return super().solve_tv(Y, sData,
+                                lval = lval,
+                                learningRate = learningRate,
+                                optimizer = optimizer,
+                                order = order,
+                                verbose = verbose,
+                                x0 = x0)
 
 
     def x0(self, Y):
@@ -118,11 +124,18 @@ class OpticsZStackVP(OpticsZStack, optics.OpticsBFVP):
     """
     Z (focus) stack with variable pupil.
     """
-    def solve_tv(self, Y, sData, lval = 1.0e-5, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True, x0 = None):
+    def solve_tv(self, Y, sData, lval = 1.0e-5, lvalp = 1.0e-2, learningRate = 1.0e-1, optimizer = None, order = 2, verbose = True, x0 = None):
         """
         Defaults tuned for a bright field focus stack with variable pupil function.
         """
-        x, nv = super().solve_tv(Y, sData, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
+        x, nv = super().solve_tv(Y, sData,
+                                 lval = jnp.array([lval, lvalp]),
+                                 learningRate = learningRate,
+                                 optimizer = optimizer,
+                                 order = order,
+                                 verbose = verbose,
+                                 x0 = x0)
+        
         x2 = jnp.mod(x[2] + jnp.pi, 2*jnp.pi) - jnp.pi
         return jnp.array([x[0], x[1], x2]), nv
 

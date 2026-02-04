@@ -136,12 +136,18 @@ class OpticsDPC(OpticsDPCBase):
         super().plot_fit_images(Y, x, self.make_masks(pats), vrange = vrange)
 
     
-    def solve_tv(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-2, order = 2, verbose = True, x0 = None):
+    def solve_tv(self, Y, illm, lval = 1.0e-3, learningRate = 1.0e-2, optimizer = None, order = 2, verbose = True, x0 = None):
         """
         Defaults tuned for DPC.
         """
         masks = self.make_masks(illm)
-        return super().solve_tv(Y, masks, lval = lval, learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
+        return super().solve_tv(Y, masks,
+                                lval = lval,
+                                learningRate = learningRate,
+                                optimizer = optimizer,
+                                order = order,
+                                verbose = verbose,
+                                x0 = x0)
 
 
     def y_pred(self, xrc, sData):
@@ -162,11 +168,18 @@ class OpticsDPCVP(optics.OpticsBFVP, OpticsDPCBase):
     Note that this is significantly slower as now we are no longer making
     the assumption that the coherent and incoherent images are the same.
     """
-    def solve_tv(self, Y, illm, lval = 1.0e-3, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True, x0 = None):
+    def solve_tv(self, Y, illm, lval = 1.0e-3, lvalp = 1.0e-2, learningRate = 1.0e-1, optimizer = None, order = 2, verbose = True, x0 = None):
         """
-        Defaults tuned for a bright field focus stack with variable pupil function.
+        Defaults tuned for DPC with variable pupil function.
         """
-        x, nv = super().solve_tv(Y, illm, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose, x0 = x0)
+        x, nv = super().solve_tv(Y, illm,
+                                 lval = jnp.array([lval, lvalp]),
+                                 learningRate = learningRate,
+                                 optimizer = optimizer,
+                                 order = order,
+                                 verbose = verbose,
+                                 x0 = x0)
+
         x2 = jnp.mod(x[2] + jnp.pi, 2*jnp.pi) - jnp.pi
         return jnp.array([x[0], x[1], x2]), nv
 
