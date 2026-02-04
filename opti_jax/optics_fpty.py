@@ -12,6 +12,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
+import skimage
 
 import opti_jax.optics as optics
 
@@ -20,16 +21,78 @@ class OpticsFPty(optics.OpticsBF):
     """
     Fourier Phytography illumination.
     """
-    def __init__(self, ni = 20, nj = 50, **kwds):
+    def __init__(self, fitShape = None, ni = 20, nj = 50, **kwds):
         """
+        fitShape - size of final pty image, this should be multiple of shape.
+        pixelSize - this is the pixel size in the FP images, not the final pty image.
+        shape - this is the size of the FP images.
+        
         Default is 1000 iterations for solving (ni * nj).
         """
-        super().__init__(**kwds)
+        shape = kwds["shape"]
         
+        scf0 = float(fitShape[0])/float(shape[0])
+        scf1 = float(fitShape[1])/float(shape[1])
+        assert (np.abs(scf0 - scf1)/(scf0 + scf1) < 1.0e-6), "'fitShape' dimensions must be proportional to 'shape' dimensions."
+        kwds["pixelSize"] = kwds["pixelSize"]/scf0
+        kwds["shape"] = fitShape
+        
+        super().__init__(**kwds)
+
         self.ni = ni
         self.nj = nj
         
+        # For slicing out the center of the HR image in Fourier space.
+        c0 = fitShape[0]//2
+        c1 = fitShape[1]//2
+        hw0 = shape[0]//2
+        hw1 = shape[1]//2
+        self.slicer = (slice(c0-hw0,c0+hw0),slice(c1-hw1,c0+hw1))
 
+        # Scaling factor for fourier transform.
+        self.ftsc = 1.0/(scf0*scf0)
+
+        # Weighting factors for different images.
+        self.weights = None
+        
+
+    def calculate_weights(self, Y):
+        """
+        Return weight values to use for different FT images.
+        """
+        means = []
+        for im in Y:
+            means.append(jnp.mean(im[im>0.0]))
+            
+        return 1.0/(jnp.array(means))
+
+
+    def compute_loss_tv_order1(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)*self.weights[:,None,None]) + self.tv_smoothness_order1(x)*lval
+        return loss
+
+
+    def compute_loss_tv_order2(self, x, Y, sData, lval):
+        """
+        Total variation loss function, first order.
+        """
+        yPred = self.y_pred(x, sData)
+        loss = jnp.mean(optax.l2_loss(yPred, Y)*self.weights[:,None,None]) + self.tv_smoothness_order2(x)*lval
+        return loss
+
+
+    def estimate_intensities(self, Y, yPred):
+        """
+        Estimate intensity correction factors for different illuminations.
+        """
+        ypm = jnp.mean(yPred, axis = (1,2))
+        return 1.0 - jnp.mean((Y - yPred), axis = (1,2))/ypm
+
+    
     def plot_aperture(self, axs, axy, rscaler = 1.0):
         """
         Overlay aperture on FT of an image.
@@ -66,27 +129,51 @@ class OpticsFPty(optics.OpticsBF):
         # Objective kmax.
         circ = plt.Circle((0.0, 0.0), radius = self.kmax, edgecolor="green", facecolor = "none", linestyle = ":")
         axs.add_patch(circ)
-        
+
+        # Object size in fourier space.
+        hw0 = self.dk0*(self.shape[0]/2)
+        hw1 = self.dk1*(self.shape[1]/2)
+        rect = plt.Rectangle((-hw0, -hw1), 2*hw0, 2*hw1, edgecolor="red", facecolor = "none", linestyle = ":")
+        axs.add_patch(rect)
+
         plt.show()
 
         
-    def solve_tv(self, Y, illm, lval = 1.0e-6, learningRate = 1.0e-1, order = 2, verbose = True):
+    def solve_tv(self, Y, sData, lval = 1.0e-3, learningRate = 1.0e-1, optimizer = None, order = 2, verbose = True, weights = None, x0 = None):
         """
         Defaults tuned for fourier phytography.
         """
-        return super().solve_tv(Y, illm, lval = lval, learningRate = learningRate, order = order, verbose = verbose)
+        if weights is None:
+            self.weights = self.calculate_weights(Y)
+        else:
+            self.weights = jnp.copy(jnp.array(weights))
+            
+        return super().solve_tv(Y, sData,
+                                lval = lval,
+                                learningRate = learningRate,
+                                optimizer = optimizer,
+                                order = order,
+                                verbose = verbose,
+                                x0 = x0)
 
 
-    def y_pred(self, xrc, rxy):
+    def x0(self, Y):
+        yave = skimage.transform.resize(jnp.average(Y, axis = 0), self.shape, preserve_range = True)
+        return jnp.array([yave, jnp.zeros_like(yave)])
+
+    
+    def y_pred(self, xrc, sData):
         """
         Return images for each of the illumination 'angles'.
 
         rxy is the (integer) shift value to use in k space for each illumination angle.
         """
+        [rxy, intensities] = sData
+
         tmp = []
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
-        for rx, ry in rxy:
-            tmp.append(self.intensity(self.from_fourier(jnp.roll(xrcFT, (rx,ry), (0,1)) * self.mask)))
+        for i in range(len(rxy)):
+            tmp.append(self.intensity(self.from_fourier(self.ftsc*(jnp.roll(xrcFT, rxy[i], (0,1)) * self.mask)[self.slicer])) * intensities[i])
         return jnp.array(tmp)
 
     
@@ -94,11 +181,23 @@ class OpticsFPtyVP(optics.OpticsBFVP, OpticsFPty):
     """
     Fourier Phytography illumination with variable pupil.
     """
-    def solve_tv(self, Y, illm, lval = 1.0e-6, lvalp = 1.0e-2, learningRate = 1.0e-1, order = 2, verbose = True):
+    def solve_tv(self, Y, sData, lval = 1.0e-3, lvalp = 1.0e-2, learningRate = 1.0e-1, optimizer = None, order = 2, verbose = True, weights = None, x0 = None):
         """
         Defaults tuned for fourier phytography.
         """
-        x, nv = super().solve_tv(Y, illm, lval = jnp.array([lval, lvalp]), learningRate = learningRate, order = order, verbose = verbose)
+        if weights is None:
+            self.weights = self.calculate_weights(Y)
+        else:
+            self.weights = jnp.copy(jnp.array(weights))
+
+        x, nv = super().solve_tv(Y, sData,
+                                 lval = jnp.array([lval, lvalp]),
+                                 learningRate = learningRate,
+                                 optimizer = optimizer,
+                                 order = order,
+                                 verbose = verbose,
+                                 x0 = x0)
+        
         x = jnp.mod(x + jnp.pi, 2*jnp.pi) - jnp.pi
         return x, nv
 
@@ -107,19 +206,21 @@ class OpticsFPtyVP(optics.OpticsBFVP, OpticsFPty):
         """
         Initialize w/ additional term for pupil function.
         """
-        yave = jnp.average(Y, axis = 0)
+        yave = skimage.transform.resize(jnp.average(Y, axis = 0), self.shape, preserve_range = True)
         return jnp.array([yave, jnp.zeros_like(yave), jnp.zeros_like(yave)])
 
 
-    def y_pred(self, xrc, rxy):
+    def y_pred(self, xrc, sData):
         """
         Return images for each of the illumination 'angles'.
 
         rxy is the (integer) shift value to use in k space for each illumination angle.
         """
+        [rxy, intensities] = sData
+        
         tmp = []
         xrcFT = self.to_fourier(self.illuminate(xrc, 0.0, 0.0))
         pupilFn = self.mask*jnp.exp(1j*xrc[2])
-        for rx, ry in rxy:
-            tmp.append(self.intensity(self.from_fourier(jnp.roll(xrcFT, (rx,ry), (0,1)) * pupilFn)))
+        for i in range(len(rxy)):
+            tmp.append(self.intensity(self.from_fourier(self.ftsc*(jnp.roll(xrcFT, (rx,ry), (0,1)) * pupilFn)[self.slicer])) * intensities[i])
         return jnp.array(tmp)
