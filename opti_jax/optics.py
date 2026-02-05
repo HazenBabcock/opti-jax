@@ -62,11 +62,16 @@ class Optics(object):
         self.mask = np.ones(self.shape)
         self.mask[(self.r > 1.0)] = 0.0
 
+        # Mask for pupil function regularization, to reduce edge effects.
+        self.pmask = np.zeros(self.shape)
+        self.pmask[scipy.ndimage.binary_erosion(self.mask > 0.5)] = 1.0
+        
         # JAX array conversion.
         self.g0 = jnp.array(self.g0)
         self.g1 = jnp.array(self.g1)
         self.kz = jnp.array(self.kz)
         self.mask = jnp.array(self.mask)
+        self.pmask = jnp.array(self.pmask)
 
         
     def from_fourier(self, imageFt):
@@ -310,15 +315,15 @@ class OpticsBF(Optics):
         """
         First order total variation in pupil function.
         """
-        return jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 0)))) + jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 1))))
+        return jnp.mean(self.pmask*(jnp.abs(p - jnp.roll(p, 1, axis = 0)))) + jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 1))))
     
 
     def pupil_smoothness_order2_x(self, p):
         """
         Second order total variation in pupil function.
         """
-        tv = jnp.mean(self.mask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 0) - jnp.roll(p, -1, axis = 0))))
-        return tv + jnp.mean(self.mask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 1) - jnp.roll(p, -1, axis = 1))))
+        tv = jnp.mean(self.pmask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 0) - jnp.roll(p, -1, axis = 0))))
+        return tv + jnp.mean(self.pmask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 1) - jnp.roll(p, -1, axis = 1))))
 
 
     def rescale(self, x, n):
@@ -422,7 +427,6 @@ class OpticsBF(Optics):
                 v, g = jax.value_and_grad(fn)(x)
                 if (n == 0):
                     nv.append(stats())
-                    
                 u, state = optimizer.update(g, state, x, value=v, grad=g, value_fn=fn)
                 x = self.rescale(x + u, n)
                 
@@ -508,16 +512,18 @@ class OpticsBF(Optics):
 
     def tv_smoothness_order1(self, xrc):
         """
-        First order total variation in X/Y, real and complex parts calculated independently.
+        First order total variation in X/Y.
         """
-        return self.tv_smoothness_order1_x(xrc[0]) + self.tv_smoothness_order1_x(xrc[1])
+        return self.tv_smoothness_order1_x(xrc[0] + 1j*xrc[1])
 
+    
     def tv_smoothness_order1_ft(self, xft):
         """
         First order total variation in X/Y, x is in fourier space.
         """
         x = xft[0] + 1j*xft[1]
         return self.norm0*jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.tk0*x)) + self.norm0*jnp.mean(jnp.abs(1j*2.0*jnp.pi*self.tk1*x))
+
 
     def tv_smoothness_order1_x(self, x):
         """
@@ -528,9 +534,9 @@ class OpticsBF(Optics):
     
     def tv_smoothness_order2(self, xrc):
         """
-        Second order total variation in X/Y, real and complex parts calculated independently.
+        Second order total variation in X/Y.
         """
-        return self.tv_smoothness_order2_x(xrc[0]) + self.tv_smoothness_order2_x(xrc[1])
+        return self.tv_smoothness_order2_x(xrc[0] + 1j*xrc[1])
 
     
     def tv_smoothness_order2_ft(self, xft):
