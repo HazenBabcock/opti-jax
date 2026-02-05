@@ -142,7 +142,7 @@ class OpticsBF(Optics):
 
     def compute_loss_tv_order2(self, x, Y, sData, lval):
         """
-        Total variation loss function, first order.
+        Total variation loss function, second order.
         """
         yPred = self.y_pred(x, sData)
         loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval
@@ -151,7 +151,7 @@ class OpticsBF(Optics):
 
     def compute_loss_tv_order2_ft(self, x, Y, sData, lval):
         """
-        Total variation loss function, first order.
+        Total variation loss function, second order, fourier space.
         """
         yPred = self.y_pred_ft(x, sData)
         loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2_ft(x)*lval
@@ -315,15 +315,15 @@ class OpticsBF(Optics):
         """
         First order total variation in pupil function.
         """
-        return jnp.mean(self.pmask*(jnp.abs(p - jnp.roll(p, 1, axis = 0)))) + jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 1))))
+        return jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 0)))) + jnp.mean(self.mask*(jnp.abs(p - jnp.roll(p, 1, axis = 1))))
     
 
     def pupil_smoothness_order2_x(self, p):
         """
         Second order total variation in pupil function.
         """
-        tv = jnp.mean(self.pmask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 0) - jnp.roll(p, -1, axis = 0))))
-        return tv + jnp.mean(self.pmask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 1) - jnp.roll(p, -1, axis = 1))))
+        tv = jnp.mean(self.mask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 0) - jnp.roll(p, -1, axis = 0))))
+        return tv + jnp.mean(self.mask*(jnp.abs(2*p - jnp.roll(p, 1, axis = 1) - jnp.roll(p, -1, axis = 1))))
 
 
     def rescale(self, x, n):
@@ -562,7 +562,7 @@ class OpticsBF(Optics):
         return jnp.array([yave, jnp.zeros_like(yave)])
 
 
-class OpticsBFVP(OpticsBF):
+class OpticsBFVp(OpticsBF):
     """
     Brightfield illumination with variable pupil function.
     """
@@ -585,7 +585,7 @@ class OpticsBFVP(OpticsBF):
 
     def compute_loss_tv_order2(self, x, Y, sData, lval):
         """
-        Total variation loss function, first order.
+        Total variation loss function, second order.
         """
         yPred = self.y_pred(x, sData)
         loss = jnp.mean(optax.l2_loss(yPred, Y)) + self.tv_smoothness_order2(x)*lval[0] + self.pupil_smoothness_order2_x(x[2])*lval[1]

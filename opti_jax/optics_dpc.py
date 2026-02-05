@@ -161,7 +161,7 @@ class OpticsDPC(OpticsDPCBase):
         return jnp.array(tmp)    
     
 
-class OpticsDPCVP(optics.OpticsBFVP, OpticsDPCBase):
+class OpticsDPCVp(optics.OpticsBFVp, OpticsDPCBase):
     """
     DPC illumination, nominally 4 patterns, with variable pupil function.
 

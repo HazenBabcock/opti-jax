@@ -120,7 +120,7 @@ class OpticsZStack(optics.OpticsBF):
         return jnp.array(tmp)
 
 
-class OpticsZStackVP(OpticsZStack, optics.OpticsBFVP):
+class OpticsZStackVp(OpticsZStack, optics.OpticsBFVp):
     """
     Z (focus) stack with variable pupil.
     """
