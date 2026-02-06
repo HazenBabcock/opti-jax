@@ -31,7 +31,8 @@ class OpticsFPty(optics.OpticsBF):
         Default is 1000 iterations for solving (ni * nj).
         """
         shape = kwds["shape"]
-        
+        self.fpShape = shape
+
         scf0 = float(fitShape[0])/float(shape[0])
         scf1 = float(fitShape[1])/float(shape[1])
         assert (np.abs(scf0 - scf1)/(scf0 + scf1) < 1.0e-6), "'fitShape' dimensions must be proportional to 'shape' dimensions."
@@ -108,8 +109,14 @@ class OpticsFPty(optics.OpticsBF):
         """
         fig, axs = plt.subplots(1, 1, figsize = (figsize[0], figsize[1]))
 
+        hw0 = self.dk0*(self.fpShape[0]/2)
+        hw1 = self.dk1*(self.fpShape[1]/2)
         for xy in rxy:
-            axs.plot(self.dk0*xy[0], self.dk1*xy[1], "o", ms = 4)
+            c0 = self.dk0*xy[0]
+            c1 = self.dk1*xy[1]
+            axs.plot(c0, c1, "o", ms = 4)
+            rect = plt.Rectangle((c0-hw0, c1-hw1), 2*hw0, 2*hw1, edgecolor="lightgray", facecolor = "none", linewidth = 0.5)
+            axs.add_patch(rect)
 
         axs.plot([-scale*self.kmax, scale*self.kmax], [0, 0], ":", color = "gray")
         axs.plot([0, 0], [-scale*self.kmax, scale*self.kmax], ":", color = "gray")
